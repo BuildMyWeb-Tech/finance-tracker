@@ -1,0 +1,128 @@
+C:\Users\ajaik\Desktop\realm-rich-reporter>node show-structure.js
+📄 .env
+📁 .git
+📄 .gitignore
+📄 bun.lock
+📄 bun.lockb
+📄 components.json
+📄 eslint.config.js
+📄 folder.txt
+📄 index.html
+📄 package-lock.json
+📄 package.json
+📄 postcss.config.js
+📁 public
+   📄 f.png
+   📄 favicon.ico
+   📄 favicon1.ico
+   📄 placeholder.svg
+   📄 robots.txt
+📄 README.md
+📄 show-structure.js
+📁 src
+   📄 App.css
+   📄 App.tsx
+   📁 components
+      📄 BottomNav.tsx
+      📄 BulkUploadTransactions.tsx
+      📄 DataControls.tsx
+      📄 ImportExcelModal.tsx
+      📄 MonthSelector.tsx
+      📄 NavLink.tsx
+      📄 OverspendAnalytics.tsx
+      📄 RecurringManager.tsx
+      📄 TransactionForm.tsx
+      📁 ui
+         📄 accordion.tsx
+         📄 alert-dialog.tsx
+         📄 alert.tsx
+         📄 aspect-ratio.tsx
+         📄 avatar.tsx
+         📄 badge.tsx
+         📄 breadcrumb.tsx
+         📄 button.tsx
+         📄 calendar.tsx
+         📄 card.tsx
+         📄 carousel.tsx
+         📄 chart.tsx
+         📄 checkbox.tsx
+         📄 collapsible.tsx
+         📄 command.tsx
+         📄 context-menu.tsx
+         📄 dialog.tsx
+         📄 drawer.tsx
+         📄 dropdown-menu.tsx
+         📄 form.tsx
+         📄 hover-card.tsx
+         📄 input-otp.tsx
+         📄 input.tsx
+         📄 label.tsx
+         📄 menubar.tsx
+         📄 navigation-menu.tsx
+         📄 pagination.tsx
+         📄 popover.tsx
+         📄 progress.tsx
+         📄 radio-group.tsx
+         📄 resizable.tsx
+         📄 scroll-area.tsx
+         📄 select.tsx
+         📄 separator.tsx
+         📄 sheet.tsx
+         📄 sidebar.tsx
+         📄 skeleton.tsx
+         📄 slider.tsx
+         📄 sonner.tsx
+         📄 switch.tsx
+         📄 table.tsx
+         📄 tabs.tsx
+         📄 textarea.tsx
+         📄 toast.tsx
+         📄 toaster.tsx
+         📄 toggle-group.tsx
+         📄 toggle.tsx
+         📄 tooltip.tsx
+         📄 use-toast.ts
+   📁 contexts
+      📄 AuthContext.tsx
+      📄 FinanceContext.tsx
+   📁 hooks
+      📄 use-mobile.tsx
+      📄 use-toast.ts
+   📄 index.css
+   📁 lib
+      📄 detectFinancialIssues.ts
+      📄 excel-export.ts
+      📄 excel-import.ts
+      📄 financial-store.ts
+      📄 pdf-export.ts
+      📄 recurring-engine.ts
+      📄 supabase-store.ts
+      📄 supabase.ts
+      📄 types.ts
+      📄 utils.ts
+   📄 main.tsx
+   📁 pages
+      📄 BudgetPage.tsx
+      📄 BulkUploadPage.tsx
+      📄 Dashboard.tsx
+      📄 IncomePage.tsx
+      📄 Index.tsx
+      📄 LoginPage.tsx
+      📄 NotFound.tsx
+      📄 PersonWisePage.tsx
+      📄 Reports.tsx
+      📄 SettingsPage.tsx
+      📄 Transactions.tsx
+   📁 test
+      📄 example.test.ts
+      📄 setup.ts
+   📁 types
+      📄 jspdf-autotable.d.ts
+   📄 vite-env.d.ts
+📄 tailwind.config.ts
+📄 tsconfig.app.json
+📄 tsconfig.json
+📄 tsconfig.node.json
+📄 vercel.json
+📄 vite.config.ts
+📄 vitest.config.ts
