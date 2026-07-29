@@ -137,6 +137,8 @@ export interface FinancialState {
   incomeSources?: IncomeSource[];
   expenseSources?: ExpenseSource[];
   accountNames?: Record<string, string>;
+  // ✅ Dynamic accounts (CRUD) — replaces hardcoded ACCOUNTS
+  customAccounts?: Account[];
 }
 
 export const MONTH_NAMES = [

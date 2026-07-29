@@ -119,6 +119,7 @@ export async function loadFromSupabase(): Promise<FinancialState> {
       incomeSources: configMap['incomeSources'],
       expenseSources: configMap['expenseSources'],
       accountNames: configMap['accountNames'],
+      customAccounts: configMap['customAccounts'],
     };
 
     // Save to local as cache

@@ -14,7 +14,7 @@ const navItems = [
   { to: '/transactions', icon: ArrowLeftRight,  label: 'Txns'    },
   { to: '/income',       icon: TrendingUp,      label: 'Income'  },
   { to: '/budget',       icon: PieChart,        label: 'Expenses'},
-  { to: '/bulk-upload',  icon: ScanLine,        label: 'Upload'  },
+  // { to: '/bulk-upload',  icon: ScanLine,        label: 'Upload'  },
   { to: '/reports',      icon: BarChart3,       label: 'Reports' },
   { to: '/persons',      icon: Users,           label: 'Persons' },
   { to: '/settings',     icon: Settings,        label: 'Settings'},

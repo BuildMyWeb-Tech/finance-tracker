@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { Transaction, Budget, RecurringEntry, FinancialState, Person, IncomeSource, ExpenseSource } from '@/lib/types';
+import { Transaction, Budget, RecurringEntry, FinancialState, Person, IncomeSource, ExpenseSource, Account } from '@/lib/types';
 import { generateId, normalizeTransaction } from '@/lib/financial-store';
 import {
   loadLocalState,
@@ -35,6 +35,7 @@ interface FinanceContextType {
   setIncomeSources: (sources: IncomeSource[]) => Promise<void>;
   setExpenseSources: (sources: ExpenseSource[]) => Promise<void>;
   setAccountNames: (names: Record<string, string>) => Promise<void>;
+  setCustomAccounts: (accounts: Account[]) => Promise<void>;
   missingMoneyLog: MissingMoneyEntry[];
   logMissingMoney: (date: string, amount: number) => void;
   migrateData: () => Promise<{ success: boolean; message: string }>;
@@ -213,6 +214,14 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const setCustomAccounts = useCallback(async (accounts: Account[]) => {
+    setState(s => {
+      const updated = { ...s, customAccounts: accounts };
+      saveConfig('customAccounts', accounts);
+      return updated;
+    });
+  }, []);
+
   // ─── MISSING MONEY LOG ────────────────────────────────────────────────────
 
   const logMissingMoney = useCallback((date: string, amount: number) => {
@@ -251,7 +260,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       setBudget, addRecurring, deleteRecurring,
       setInitialBalance, setAccountBalance,
       setRealBalance,
-      setIncomeSources, setExpenseSources, setAccountNames,
+      setIncomeSources, setExpenseSources, setAccountNames, setCustomAccounts,
       missingMoneyLog, logMissingMoney,
       migrateData, refreshFromCloud,
       selectedYear, selectedMonth, setSelectedYear, setSelectedMonth,
