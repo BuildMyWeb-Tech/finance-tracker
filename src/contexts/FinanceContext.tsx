@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { Transaction, Budget, RecurringEntry, FinancialState, Person, IncomeSource, ExpenseSource, Account } from '@/lib/types';
 import { generateId, normalizeTransaction } from '@/lib/financial-store';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   loadLocalState,
   saveLocalState,
@@ -62,7 +63,10 @@ function saveMissingLog(log: MissingMoneyEntry[]) {
 }
 
 export function FinanceProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<FinancialState>(loadLocalState);
+  const { currentUser } = useAuth();
+  const userId = currentUser || 'guest';
+
+  const [state, setState] = useState<FinancialState>(() => loadLocalState(userId));
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [missingMoneyLog, setMissingMoneyLog] = useState<MissingMoneyEntry[]>(loadMissingLog);
@@ -71,51 +75,49 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
 
+  // Reload from Supabase whenever userId changes (login/logout/switch)
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       setIsLoading(true);
-      const cloudState = await loadFromSupabase();
-      setState(cloudState);
-      setIsLoading(false);
+      setState(loadLocalState(userId)); // show local immediately
+      const cloudState = await loadFromSupabase(userId);
+      if (!cancelled) { setState(cloudState); setIsLoading(false); }
     })();
-  }, []);
+    return () => { cancelled = true; };
+  }, [userId]);
 
   useEffect(() => {
-    if (!isLoading) saveLocalState(state);
-  }, [state, isLoading]);
+    if (!isLoading) saveLocalState(state, userId);
+  }, [state, isLoading, userId]);
 
   // ─── TRANSACTIONS ──────────────────────────────────────────────────────────
 
   const addTransaction = useCallback(async (txn: Omit<Transaction, 'id'>) => {
-    // ✅ FIX: normalize BEFORE storing — ensures type is always lowercase,
-    // amount always positive. Without this, 'Income' !== 'income' and
-    // getAccountBalance silently ignores the transaction → wrong balance.
     const newTxn: Transaction = normalizeTransaction({ ...txn, id: generateId() });
     setState(s => ({ ...s, transactions: [...s.transactions, newTxn] }));
     setIsSyncing(true);
-    await saveTransaction(newTxn);
+    await saveTransaction(newTxn, userId);
     setIsSyncing(false);
-  }, []);
+  }, [userId]);
 
   const deleteTransaction = useCallback(async (id: string) => {
     setState(s => ({ ...s, transactions: s.transactions.filter(t => t.id !== id) }));
     setIsSyncing(true);
-    await deleteTransactionFromDB(id);
+    await deleteTransactionFromDB(id, userId);
     setIsSyncing(false);
-  }, []);
+  }, [userId]);
 
   const updateTransaction = useCallback(async (txn: Transaction) => {
-    // ✅ FIX: normalize on update too — editing a transaction must not
-    // reintroduce bad casing or negative amounts.
     const normalized = normalizeTransaction(txn);
     setState(s => ({
       ...s,
       transactions: s.transactions.map(t => t.id === normalized.id ? normalized : t),
     }));
     setIsSyncing(true);
-    await saveTransaction(normalized);
+    await saveTransaction(normalized, userId);
     setIsSyncing(false);
-  }, []);
+  }, [userId]);
 
   // ─── BUDGETS ───────────────────────────────────────────────────────────────
 
@@ -130,9 +132,9 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       return { ...s, budgets };
     });
     setIsSyncing(true);
-    await saveBudget({ category, amount, year, month });
+    await saveBudget({ category, amount, year, month }, userId);
     setIsSyncing(false);
-  }, []);
+  }, [userId]);
 
   // ─── RECURRING ────────────────────────────────────────────────────────────
 
@@ -140,14 +142,14 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     const newEntry: RecurringEntry = { ...entry, id: generateId() };
     setState(s => ({ ...s, recurringEntries: [...s.recurringEntries, newEntry] }));
     setIsSyncing(true);
-    await saveRecurring(newEntry);
+    await saveRecurring(newEntry, userId);
     setIsSyncing(false);
-  }, []);
+  }, [userId]);
 
   const deleteRecurring = useCallback(async (id: string) => {
     setState(s => ({ ...s, recurringEntries: s.recurringEntries.filter(r => r.id !== id) }));
     setIsSyncing(true);
-    await deleteRecurringFromDB(id);
+    await deleteRecurringFromDB(id, userId);
     setIsSyncing(false);
   }, []);
 
@@ -156,7 +158,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const setInitialBalance = useCallback(async (person: Person, amount: number) => {
     setState(s => {
       const updated = { ...s, initialBalances: { ...s.initialBalances, [person]: amount } };
-      saveConfig('initialBalances', updated.initialBalances);
+      saveConfig('initialBalances', updated.initialBalances, userId);
       return updated;
     });
   }, []);
@@ -164,7 +166,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const setAccountBalance = useCallback(async (accountId: string, amount: number) => {
     setState(s => {
       const updated = { ...s, accountBalances: { ...s.accountBalances, [accountId]: amount } };
-      saveConfig('accountBalances', updated.accountBalances);
+      saveConfig('accountBalances', updated.accountBalances, userId);
       return updated;
     });
   }, []);
@@ -184,7 +186,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     setIsSyncing(true);
     // Small delay to let setState flush so updatedMap is captured correctly
     await new Promise(r => setTimeout(r, 0));
-    await saveConfig('realBalances', updatedMap);
+    await saveConfig('realBalances', updatedMap, userId);
     setIsSyncing(false);
   }, []);
 
@@ -193,7 +195,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const setIncomeSources = useCallback(async (sources: IncomeSource[]) => {
     setState(s => {
       const updated = { ...s, incomeSources: sources };
-      saveConfig('incomeSources', sources);
+      saveConfig('incomeSources', sources, userId);
       return updated;
     });
   }, []);
@@ -201,7 +203,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const setExpenseSources = useCallback(async (sources: ExpenseSource[]) => {
     setState(s => {
       const updated = { ...s, expenseSources: sources };
-      saveConfig('expenseSources', sources);
+      saveConfig('expenseSources', sources, userId);
       return updated;
     });
   }, []);
@@ -209,7 +211,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const setAccountNames = useCallback(async (names: Record<string, string>) => {
     setState(s => {
       const updated = { ...s, accountNames: names };
-      saveConfig('accountNames', names);
+      saveConfig('accountNames', names, userId);
       return updated;
     });
   }, []);
@@ -217,7 +219,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const setCustomAccounts = useCallback(async (accounts: Account[]) => {
     setState(s => {
       const updated = { ...s, customAccounts: accounts };
-      saveConfig('customAccounts', accounts);
+      saveConfig('customAccounts', accounts, userId);
       return updated;
     });
   }, []);
@@ -243,12 +245,12 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   // ─── MIGRATION & REFRESH ──────────────────────────────────────────────────
 
   const migrateData = useCallback(async () => {
-    return await migrateLocalToSupabase();
+    return await migrateLocalToSupabase(userId);
   }, []);
 
   const refreshFromCloud = useCallback(async () => {
     setIsLoading(true);
-    const cloudState = await loadFromSupabase();
+    const cloudState = await loadFromSupabase(userId);
     setState(cloudState);
     setIsLoading(false);
   }, []);

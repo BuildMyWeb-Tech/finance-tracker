@@ -1,8 +1,7 @@
 import { useState, useRef } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
 import {
-  PERSONS, HOME_INCOME_CATEGORIES, DEBT_INCOME_CATEGORIES,
-  EXPENSE_CATEGORIES, DEBT_EXPENSE_CATEGORIES, ACCOUNTS,
+  PERSONS,
   TransactionType, PaymentMode, Person, HomeOrDebt,
 } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -222,36 +221,27 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
 
   const customIncomeSources = state.incomeSources || [];
   const customExpenseSources = state.expenseSources || [];
+  const accounts = state.customAccounts || [];
 
-  const homeExpenseCategories = [
-    ...EXPENSE_CATEGORIES,
-    ...customExpenseSources.filter(s => s.group === 'home').map(s => s.name),
-  ];
-  const debtExpenseCategories = [
-    ...DEBT_EXPENSE_CATEGORIES,
-    ...customExpenseSources.filter(s => s.group === 'debt').map(s => s.name),
-  ];
+  // Build category lists entirely from settings — no hardcoded lists
+  const homeIncomeCategories = customIncomeSources.filter(s => s.group === 'home').map(s => s.name);
+  const debtIncomeCategories = customIncomeSources.filter(s => s.group === 'debt').map(s => s.name);
+  const homeExpenseCategories = customExpenseSources.filter(s => s.group === 'home').map(s => s.name);
+  const debtExpenseCategories = customExpenseSources.filter(s => s.group === 'debt').map(s => s.name);
 
   const categories: string[] = form.type === 'income'
-    ? form.homeOrDebt === 'home'
-      ? [...HOME_INCOME_CATEGORIES, ...customIncomeSources.filter(s => s.group === 'home').map(s => s.name)]
-      : [...DEBT_INCOME_CATEGORIES, ...customIncomeSources.filter(s => s.group === 'debt').map(s => s.name)]
+    ? form.homeOrDebt === 'home' ? homeIncomeCategories : debtIncomeCategories
     : form.type === 'expense'
       ? form.homeOrDebt === 'debt' ? debtExpenseCategories : homeExpenseCategories
       : [];
 
-  const personAccounts = form.person ? ACCOUNTS.filter(a => a.person === (form.person as Person)) : [];
+  const personAccounts = form.person ? accounts.filter(a => a.person === (form.person as Person)) : [];
 
-  // Transfer: show ALL persons including self
   const transferToPersons = PERSONS;
-
-  // Transfer to accounts:
-  // - Same person → all accounts EXCEPT selected from-account
-  // - Different person → all accounts of that person
   const transferToAccounts = form.transferTo
     ? form.transferTo === form.person
-      ? ACCOUNTS.filter(a => a.person === (form.transferTo as Person) && a.id !== form.accountId)
-      : ACCOUNTS.filter(a => a.person === (form.transferTo as Person))
+      ? accounts.filter(a => a.person === (form.transferTo as Person) && a.id !== form.accountId)
+      : accounts.filter(a => a.person === (form.transferTo as Person))
     : [];
 
   const handleParsedBill = (result: ParsedBill) => {

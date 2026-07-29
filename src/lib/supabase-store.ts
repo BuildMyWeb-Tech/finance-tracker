@@ -1,15 +1,17 @@
 /**
  * supabase-store.ts
- * Handles all Supabase read/write for the family finance app.
- * localStorage is kept as offline fallback.
+ * All reads/writes are scoped by userId — each user has isolated data.
+ * Pass userId to every function that touches the DB.
  */
 
 import { supabase } from './supabase';
-import { Transaction, Budget, RecurringEntry, FinancialState, Person } from './types';
+import {
+  Transaction, Budget, RecurringEntry, FinancialState, Person,
+} from './types';
 
 const LOCAL_KEY = 'family-finance-data';
 
-// ─── LOCAL STORAGE (fallback) ────────────────────────────────────────────────
+// ─── Local fallback ───────────────────────────────────────────────────────────
 
 const defaultState: FinancialState = {
   transactions: [],
@@ -21,46 +23,42 @@ const defaultState: FinancialState = {
   realBalances: {},
 };
 
-export function loadLocalState(): FinancialState {
+export function loadLocalState(userId?: string): FinancialState {
   try {
-    const raw = localStorage.getItem(LOCAL_KEY);
-    if (!raw) return defaultState;
-    const parsed = JSON.parse(raw);
+    const key = userId ? `${LOCAL_KEY}-${userId}` : LOCAL_KEY;
+    const raw = localStorage.getItem(key);
+    if (!raw) return { ...defaultState };
+    const parsed = JSON.parse(raw) as FinancialState;
     if (!parsed.accountBalances) parsed.accountBalances = {};
     if (!parsed.realBalances) parsed.realBalances = {};
-    if (parsed.transactions) {
-      parsed.transactions = parsed.transactions.map((t: any) => ({
-        ...t,
-        homeOrDebt: t.homeOrDebt || 'home',
-      }));
-    }
     return parsed;
   } catch {
-    return defaultState;
+    return { ...defaultState };
   }
 }
 
-export function saveLocalState(state: FinancialState): void {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(state));
+export function saveLocalState(state: FinancialState, userId?: string): void {
+  const key = userId ? `${LOCAL_KEY}-${userId}` : LOCAL_KEY;
+  localStorage.setItem(key, JSON.stringify(state));
 }
 
-// ─── SUPABASE READS ──────────────────────────────────────────────────────────
+// ─── SUPABASE READS (user-scoped) ─────────────────────────────────────────────
 
-export async function loadFromSupabase(): Promise<FinancialState> {
+export async function loadFromSupabase(userId: string): Promise<FinancialState> {
   try {
     const [txnRes, budgetRes, recurringRes, configRes] = await Promise.all([
-      supabase.from('transactions').select('*').order('date', { ascending: false }),
-      supabase.from('budgets').select('*'),
-      supabase.from('recurring_entries').select('*'),
-      supabase.from('app_config').select('*'),
+      supabase.from('transactions').select('*').eq('user_id', userId).order('date', { ascending: false }),
+      supabase.from('budgets').select('*').eq('user_id', userId),
+      supabase.from('recurring_entries').select('*').eq('user_id', userId),
+      supabase.from('app_config').select('*').eq('user_id', userId),
     ]);
 
-    if (txnRes.error || budgetRes.error || recurringRes.error || configRes.error) {
+    if (txnRes.error || budgetRes.error) {
+      // If user_id column missing (old schema), fall back gracefully
       console.warn('Supabase load error, falling back to local:', txnRes.error || budgetRes.error);
-      return loadLocalState();
+      return loadLocalState(userId);
     }
 
-    // Map snake_case DB columns → camelCase app fields
     const transactions: Transaction[] = (txnRes.data || []).map(row => ({
       id: row.id,
       date: row.date,
@@ -100,7 +98,6 @@ export async function loadFromSupabase(): Promise<FinancialState> {
       accountId: row.account_id,
     }));
 
-    // Parse config — now includes realBalances
     const configMap: Record<string, any> = {};
     for (const row of configRes.data || []) {
       configMap[row.key] = row.value;
@@ -113,29 +110,27 @@ export async function loadFromSupabase(): Promise<FinancialState> {
       monthData: [],
       initialBalances: configMap['initialBalances'] || defaultState.initialBalances,
       accountBalances: configMap['accountBalances'] || {},
-      // ✅ NEW: real balances loaded from DB
       realBalances: configMap['realBalances'] || {},
-      // Custom sources
       incomeSources: configMap['incomeSources'],
       expenseSources: configMap['expenseSources'],
       accountNames: configMap['accountNames'],
       customAccounts: configMap['customAccounts'],
     };
 
-    // Save to local as cache
-    saveLocalState(state);
+    saveLocalState(state, userId);
     return state;
   } catch (err) {
     console.warn('Supabase unreachable, using local data:', err);
-    return loadLocalState();
+    return loadLocalState(userId);
   }
 }
 
-// ─── SUPABASE WRITES ─────────────────────────────────────────────────────────
+// ─── SUPABASE WRITES (user-scoped) ────────────────────────────────────────────
 
-export async function saveTransaction(txn: Transaction): Promise<void> {
+export async function saveTransaction(txn: Transaction, userId: string): Promise<void> {
   const { error } = await supabase.from('transactions').upsert({
     id: txn.id,
+    user_id: userId,
     date: txn.date,
     year: txn.year,
     month: txn.month,
@@ -154,24 +149,26 @@ export async function saveTransaction(txn: Transaction): Promise<void> {
   if (error) console.error('Error saving transaction:', error);
 }
 
-export async function deleteTransactionFromDB(id: string): Promise<void> {
-  const { error } = await supabase.from('transactions').delete().eq('id', id);
+export async function deleteTransactionFromDB(id: string, userId: string): Promise<void> {
+  const { error } = await supabase.from('transactions').delete().eq('id', id).eq('user_id', userId);
   if (error) console.error('Error deleting transaction:', error);
 }
 
-export async function saveBudget(budget: Budget): Promise<void> {
+export async function saveBudget(budget: Budget, userId: string): Promise<void> {
   const { error } = await supabase.from('budgets').upsert({
+    user_id: userId,
     category: budget.category,
     amount: budget.amount,
     month: budget.month,
     year: budget.year,
-  }, { onConflict: 'category,month,year' });
+  }, { onConflict: 'user_id,category,month,year' });
   if (error) console.error('Error saving budget:', error);
 }
 
-export async function saveRecurring(entry: RecurringEntry): Promise<void> {
+export async function saveRecurring(entry: RecurringEntry, userId: string): Promise<void> {
   const { error } = await supabase.from('recurring_entries').upsert({
     id: entry.id,
+    user_id: userId,
     person: entry.person,
     type: entry.type,
     category: entry.category,
@@ -186,97 +183,79 @@ export async function saveRecurring(entry: RecurringEntry): Promise<void> {
   if (error) console.error('Error saving recurring entry:', error);
 }
 
-export async function deleteRecurringFromDB(id: string): Promise<void> {
-  const { error } = await supabase.from('recurring_entries').delete().eq('id', id);
+export async function deleteRecurringFromDB(id: string, userId: string): Promise<void> {
+  const { error } = await supabase.from('recurring_entries').delete().eq('id', id).eq('user_id', userId);
   if (error) console.error('Error deleting recurring:', error);
 }
 
-export async function saveConfig(key: string, value: any): Promise<void> {
+export async function saveConfig(key: string, value: any, userId: string): Promise<void> {
   const { error } = await supabase.from('app_config').upsert(
-    { key, value, updated_at: new Date().toISOString() },
-    { onConflict: 'key' }
+    { key, value, user_id: userId, updated_at: new Date().toISOString() },
+    { onConflict: 'key,user_id' }
   );
   if (error) console.error(`Error saving config [${key}]:`, error);
 }
 
-// ─── MIGRATION ───────────────────────────────────────────────────────────────
+// ─── User registration (stored in app_config under key "users") ───────────────
 
-export async function migrateLocalToSupabase(): Promise<{ success: boolean; message: string }> {
-  const local = loadLocalState();
+export async function registerUser(
+  userId: string,
+  password: string,
+): Promise<{ success: boolean; error?: string }> {
+  // Store under global key (no user_id scope — it's the auth table)
+  const { data: existing } = await supabase
+    .from('app_config')
+    .select('value')
+    .eq('key', 'registered_users')
+    .is('user_id', null)
+    .maybeSingle();
 
-  if (local.transactions.length === 0 && local.budgets.length === 0) {
-    return { success: false, message: 'No local data found to migrate.' };
+  const users: Record<string, string> = existing?.value || {};
+
+  if (users[userId.toLowerCase()]) {
+    return { success: false, error: 'User ID already taken' };
   }
 
+  users[userId.toLowerCase()] = password;
+
+  const { error } = await supabase.from('app_config').upsert(
+    { key: 'registered_users', value: users, user_id: null, updated_at: new Date().toISOString() },
+    { onConflict: 'key' }
+  );
+
+  if (error) return { success: false, error: 'Registration failed — DB error' };
+  return { success: true };
+}
+
+export async function loadRegisteredUsers(): Promise<Record<string, string>> {
   try {
-    const txnBatches = chunkArray(local.transactions, 100);
-    for (const batch of txnBatches) {
-      const rows = batch.map(txn => ({
-        id: txn.id,
-        date: txn.date,
-        year: txn.year,
-        month: txn.month,
-        person: txn.person,
-        type: txn.type,
-        category: txn.category,
-        amount: txn.amount,
-        payment_mode: txn.paymentMode,
-        notes: txn.notes || '',
-        transfer_to: txn.transferTo || null,
-        account_id: txn.accountId || null,
-        transfer_to_account_id: txn.transferToAccountId || null,
-        home_or_debt: txn.homeOrDebt || 'home',
-        expected_amount: txn.expectedAmount ?? null,
-      }));
-      const { error } = await supabase.from('transactions').upsert(rows);
-      if (error) throw error;
-    }
-
-    if (local.budgets.length > 0) {
-      const { error } = await supabase.from('budgets').upsert(
-        local.budgets.map(b => ({ ...b })),
-        { onConflict: 'category,month,year' }
-      );
-      if (error) throw error;
-    }
-
-    if (local.recurringEntries.length > 0) {
-      const rows = local.recurringEntries.map(e => ({
-        id: e.id,
-        person: e.person,
-        type: e.type,
-        category: e.category,
-        amount: e.amount,
-        payment_mode: e.paymentMode,
-        notes: e.notes || '',
-        day_of_month: e.dayOfMonth,
-        transfer_to: e.transferTo || null,
-        home_or_debt: e.homeOrDebt || 'home',
-        account_id: e.accountId || null,
-      }));
-      const { error } = await supabase.from('recurring_entries').upsert(rows);
-      if (error) throw error;
-    }
-
-    await saveConfig('initialBalances', local.initialBalances);
-    await saveConfig('accountBalances', local.accountBalances);
-    // ✅ Also migrate real balances if present
-    if (local.realBalances && Object.keys(local.realBalances).length > 0) {
-      await saveConfig('realBalances', local.realBalances);
-    }
-
-    return {
-      success: true,
-      message: `Migrated ${local.transactions.length} transactions, ${local.budgets.length} budgets, ${local.recurringEntries.length} recurring entries.`,
-    };
-  } catch (err: any) {
-    console.error('Migration error:', err);
-    return { success: false, message: err.message || 'Migration failed.' };
+    const { data } = await supabase
+      .from('app_config')
+      .select('value')
+      .eq('key', 'registered_users')
+      .is('user_id', null)
+      .maybeSingle();
+    return (data?.value as Record<string, string>) || {};
+  } catch {
+    return {};
   }
 }
 
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const result: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) result.push(arr.slice(i, i + size));
-  return result;
+// ─── Migration helper ─────────────────────────────────────────────────────────
+
+export async function migrateLocalToSupabase(userId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const local = loadLocalState(userId);
+    for (const txn of local.transactions) await saveTransaction(txn, userId);
+    for (const b of local.budgets) await saveBudget(b, userId);
+    for (const r of local.recurringEntries) await saveRecurring(r, userId);
+    await saveConfig('accountBalances', local.accountBalances, userId);
+    await saveConfig('initialBalances', local.initialBalances, userId);
+    if (local.incomeSources) await saveConfig('incomeSources', local.incomeSources, userId);
+    if (local.expenseSources) await saveConfig('expenseSources', local.expenseSources, userId);
+    if (local.customAccounts) await saveConfig('customAccounts', local.customAccounts, userId);
+    return { success: true, message: `Migrated ${local.transactions.length} transactions for ${userId}` };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Migration failed' };
+  }
 }

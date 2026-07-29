@@ -5,7 +5,7 @@ import {
   getAccountBalance, rc,
 } from '@/lib/financial-store';
 import {
-  ACCOUNTS, getCashAccounts, getBankAccounts, MONTH_NAMES,
+  MONTH_NAMES,
   HOME_INCOME_CATEGORIES, DEBT_INCOME_CATEGORIES, DEBT_EXPENSE_CATEGORIES,
 } from '@/lib/types';
 import MonthSelector from '@/components/MonthSelector';
@@ -60,8 +60,9 @@ export default function Reports() {
   const homeDebt  = getHomeDebtSummary(state.transactions, selectedYear, selectedMonth);
   const monthTxns = getMonthTransactions(state.transactions, selectedYear, selectedMonth);
 
-  const cashAccounts = getCashAccounts();
-  const bankAccounts = getBankAccounts();
+  const allAccounts   = state.customAccounts || [];
+  const cashAccounts  = allAccounts.filter(a => a.type === 'cash');
+  const bankAccounts  = allAccounts.filter(a => a.type === 'bank');
 
   const getAccBal = (id: string) =>
     getAccountBalance(state.transactions, id, selectedYear, selectedMonth, state.accountBalances);
@@ -90,7 +91,7 @@ export default function Reports() {
   // ── Missing money (sum of all real-balance differences) ───────────────────
   const missingMoneyFromReal = useMemo(() => {
     let total = 0;
-    for (const acc of ACCOUNTS) {
+    for (const acc of allAccounts) {
       const real = realBalances[acc.id];
       if (real !== undefined) {
         const closing = getAccBal(acc.id).closing;

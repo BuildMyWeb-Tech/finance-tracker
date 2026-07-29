@@ -9,9 +9,6 @@
 import { useState, useMemo } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
 import { getOverspendCategories, getMonthTransactions } from '@/lib/financial-store';
-import {
-  EXPENSE_CATEGORIES, DEBT_EXPENSE_CATEGORIES, DEFAULT_EXPECTED_DEBT_EXPENSE, ACCOUNTS,
-} from '@/lib/types';
 import MonthSelector from '@/components/MonthSelector';
 import TransactionForm from '@/components/TransactionForm';
 import { Progress } from '@/components/ui/progress';
@@ -24,9 +21,9 @@ import TimeRangeFilter, { TimeRange, getTransactionsForRange } from '@/component
 import AnalyticsCharts from '@/components/AnalyticsCharts';
 
 // ── Mini transaction row ─────────────────────────────────────────────────────
-function CategoryTxnRow({ t }: { t: Transaction }) {
+function CategoryTxnRow({ t, accounts }: { t: Transaction; accounts: { id: string; name: string }[] }) {
   const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
-  const accountName = t.accountId ? ACCOUNTS.find(a => a.id === t.accountId)?.name : null;
+  const accountName = t.accountId ? accounts.find((a: { id: string; name: string }) => a.id === t.accountId)?.name : null;
   return (
     <div className="flex items-center justify-between text-xs py-1.5 px-2 rounded-lg hover:bg-muted/20 border-b border-border/15 last:border-0">
       <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -59,6 +56,7 @@ export default function BudgetPage() {
   const customExpense = state.expenseSources || [];
   const customHome = customExpense.filter(s => s.group === 'home');
   const customDebt = customExpense.filter(s => s.group === 'debt');
+  const accounts = state.customAccounts || [];
 
   // For budget calculations — always use selected month (budgets are per-month)
   const categories = getOverspendCategories(state.transactions, state.budgets, selectedYear, selectedMonth);
@@ -119,9 +117,9 @@ export default function BudgetPage() {
     return map;
   }, [rangeTxns]);
 
-  const allDebtCats = [...DEBT_EXPENSE_CATEGORIES, ...customDebt.map(s => s.name)];
+  const allDebtCats = customDebt.map(s => s.name);
   const defaultDebtExpected = useMemo(() => {
-    const map: Record<string, number> = { ...DEFAULT_EXPECTED_DEBT_EXPENSE };
+    const map: Record<string, number> = {};
     for (const s of customDebt) map[s.name] = s.defaultBudget;
     return map;
   }, [customDebt]);
@@ -402,7 +400,7 @@ export default function BudgetPage() {
                             {txns.length} transaction{txns.length > 1 ? 's' : ''}
                           </p>
                           <div className="space-y-0">
-                            {txns.map(t => <CategoryTxnRow key={t.id} t={t} />)}
+                            {txns.map(t => <CategoryTxnRow key={t.id} t={t} accounts={accounts} />)}
                           </div>
                           <div className="flex justify-between text-xs font-bold pt-2 mt-1 border-t border-border/20">
                             <span className="text-muted-foreground">Total</span>
@@ -532,7 +530,7 @@ export default function BudgetPage() {
                             {txns.length} transaction{txns.length > 1 ? 's' : ''}
                           </p>
                           <div className="space-y-0">
-                            {txns.map(t => <CategoryTxnRow key={t.id} t={t} />)}
+                            {txns.map(t => <CategoryTxnRow key={t.id} t={t} accounts={accounts} />)}
                           </div>
                           <div className="flex justify-between text-xs font-bold pt-2 mt-1 border-t border-border/20">
                             <span className="text-muted-foreground">Total</span>

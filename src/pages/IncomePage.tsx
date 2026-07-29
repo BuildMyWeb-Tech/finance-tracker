@@ -9,7 +9,6 @@
 import { useState, useMemo } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
 import { getMonthTransactions } from '@/lib/financial-store';
-import { HOME_INCOME_CATEGORIES, DEBT_INCOME_CATEGORIES, DEFAULT_EXPECTED_INCOME, ACCOUNTS } from '@/lib/types';
 import type { Transaction } from '@/lib/types';
 import MonthSelector from '@/components/MonthSelector';
 import TransactionForm from '@/components/TransactionForm';
@@ -23,9 +22,9 @@ import AnalyticsCharts from '@/components/AnalyticsCharts';
 type ExpectedMap = Record<string, number>;
 
 // ── Mini transaction row for income ─────────────────────────────────────────
-function IncomeTxnRow({ t }: { t: Transaction }) {
+function IncomeTxnRow({ t, accounts }: { t: Transaction; accounts: { id: string; name: string }[] }) {
   const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
-  const accountName = t.accountId ? ACCOUNTS.find(a => a.id === t.accountId)?.name : null;
+  const accountName = t.accountId ? accounts.find(a => a.id === t.accountId)?.name : null;
   return (
     <div className="flex items-center justify-between text-xs py-1.5 px-2 rounded-lg hover:bg-muted/20 border-b border-border/15 last:border-0">
       <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -130,7 +129,7 @@ function IncomeRow({
           <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mb-1.5">
             {transactions.length} transaction{transactions.length > 1 ? 's' : ''}
           </p>
-          {transactions.map(t => <IncomeTxnRow key={t.id} t={t} />)}
+          {transactions.map(t => <IncomeTxnRow key={t.id} t={t} accounts={accounts} />)}
           <div className="flex justify-between text-xs font-bold pt-2 mt-1 border-t border-border/20">
             <span className="text-muted-foreground">Total</span>
             <span className="text-success tabular-nums">{fmt(actual)}</span>
@@ -162,11 +161,13 @@ export default function IncomePage() {
   const customIncome = state.incomeSources || [];
   const customHome = customIncome.filter(s => s.group === 'home');
   const customDebt = customIncome.filter(s => s.group === 'debt');
-  const homeCategories = [...HOME_INCOME_CATEGORIES, ...customHome.map(s => s.name)];
-  const debtCategories = [...DEBT_INCOME_CATEGORIES, ...customDebt.map(s => s.name)];
+  // Fully dynamic — only show categories from Settings
+  const homeCategories = customHome.map(s => s.name);
+  const debtCategories = customDebt.map(s => s.name);
+  const accounts = state.customAccounts || [];
 
   const defaultExpected = useMemo(() => {
-    const map: Record<string, number> = { ...DEFAULT_EXPECTED_INCOME };
+    const map: Record<string, number> = {};
     for (const s of customIncome) map[s.name] = s.defaultExpected;
     return map;
   }, [customIncome]);
