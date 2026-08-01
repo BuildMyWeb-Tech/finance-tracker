@@ -8,6 +8,7 @@
 
 import { useState, useMemo } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
+import { useAppData } from '@/hooks/useAppData';
 import { getOverspendCategories, getMonthTransactions } from '@/lib/financial-store';
 import MonthSelector from '@/components/MonthSelector';
 import TransactionForm from '@/components/TransactionForm';
@@ -57,9 +58,13 @@ export default function BudgetPage() {
   const customHome = customExpense.filter(s => s.group === 'home');
   const customDebt = customExpense.filter(s => s.group === 'debt');
   const accounts = state.customAccounts || [];
+  const { persons, homeExpenseCategories } = useAppData();
 
-  // For budget calculations — always use selected month (budgets are per-month)
-  const categories = getOverspendCategories(state.transactions, state.budgets, selectedYear, selectedMonth);
+  // For budget calculations — pass dynamic home categories to override hardcoded list
+  const categories = getOverspendCategories(
+    state.transactions, state.budgets, selectedYear, selectedMonth,
+    homeExpenseCategories,
+  );
 
   // For transaction display — use time range
   const rangeTxns = useMemo(

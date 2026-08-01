@@ -1,9 +1,7 @@
 import { useState, useRef } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
-import {
-  PERSONS,
-  TransactionType, PaymentMode, Person, HomeOrDebt,
-} from '@/lib/types';
+import { useAppData } from '@/hooks/useAppData';
+import { TransactionType, PaymentMode, Person, HomeOrDebt } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -199,7 +197,8 @@ function PaymentModeRadio({ value, onChange }: { value: PaymentMode; onChange: (
 type FormTab = 'manual' | 'image';
 
 export default function TransactionForm({ onSuccess }: { onSuccess?: () => void }) {
-  const { addTransaction, state } = useFinance();
+  const { addTransaction } = useFinance();
+  const { persons, getCategoriesFor, getAccountsForPerson, accounts } = useAppData();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<FormTab>('manual');
   const today = new Date().toISOString().split('T')[0];
@@ -219,29 +218,13 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
     homeOrDebt: 'home' as HomeOrDebt,
   });
 
-  const customIncomeSources = state.incomeSources || [];
-  const customExpenseSources = state.expenseSources || [];
-  const accounts = state.customAccounts || [];
-
-  // Build category lists entirely from settings — no hardcoded lists
-  const homeIncomeCategories = customIncomeSources.filter(s => s.group === 'home').map(s => s.name);
-  const debtIncomeCategories = customIncomeSources.filter(s => s.group === 'debt').map(s => s.name);
-  const homeExpenseCategories = customExpenseSources.filter(s => s.group === 'home').map(s => s.name);
-  const debtExpenseCategories = customExpenseSources.filter(s => s.group === 'debt').map(s => s.name);
-
-  const categories: string[] = form.type === 'income'
-    ? form.homeOrDebt === 'home' ? homeIncomeCategories : debtIncomeCategories
-    : form.type === 'expense'
-      ? form.homeOrDebt === 'debt' ? debtExpenseCategories : homeExpenseCategories
-      : [];
-
-  const personAccounts = form.person ? accounts.filter(a => a.person === (form.person as Person)) : [];
-
-  const transferToPersons = PERSONS;
+  const categories = getCategoriesFor(form.type as 'income' | 'expense' | 'transfer', form.homeOrDebt as 'home' | 'debt');
+  const personAccounts = form.person ? getAccountsForPerson(form.person) : [];
+  const transferToPersons = persons;
   const transferToAccounts = form.transferTo
     ? form.transferTo === form.person
-      ? accounts.filter(a => a.person === (form.transferTo as Person) && a.id !== form.accountId)
-      : accounts.filter(a => a.person === (form.transferTo as Person))
+      ? accounts.filter(a => a.person === form.transferTo && a.id !== form.accountId)
+      : accounts.filter(a => a.person === form.transferTo)
     : [];
 
   const handleParsedBill = (result: ParsedBill) => {
@@ -373,7 +356,7 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
             <Label>Person</Label>
             <Select value={form.person} onValueChange={v => setForm(f => ({ ...f, person: v, accountId: '', transferTo: '', transferToAccountId: '' }))}>
               <SelectTrigger><SelectValue placeholder="Select person" /></SelectTrigger>
-              <SelectContent>{PERSONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+              <SelectContent>{persons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
             </Select>
           </div>
 

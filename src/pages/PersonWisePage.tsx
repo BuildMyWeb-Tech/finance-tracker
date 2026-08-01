@@ -3,8 +3,9 @@ import { useFinance } from '@/contexts/FinanceContext';
 import {
   getPersonBalance, getMonthTransactions, validateTransfer,
   sortByDateDesc, normalizeTransaction,
-} from '@/lib/financial-store'; 
-import { PERSONS, Person, ACCOUNTS, MONTH_NAMES } from '@/lib/types';
+} from '@/lib/financial-store';
+import { MONTH_NAMES } from '@/lib/types';
+import { useAppData } from '@/hooks/useAppData';
 import MonthSelector from '@/components/MonthSelector';
 import TransactionForm from '@/components/TransactionForm';
 import { Progress } from '@/components/ui/progress';
@@ -21,25 +22,36 @@ import {
   ArrowLeftRight, ChevronDown, ChevronUp,
 } from 'lucide-react';
 
-// ─── Person colours ──────────────────────────────────────────────────────────
+// ─── Person colours (dynamic — any person name gets a colour by index) ────────
 
-const PERSON_COLORS: Record<Person, { bg: string; text: string; border: string }> = {
-  Appa:  { bg: 'bg-blue-500/15', text: 'text-blue-400',  border: 'border-blue-500/30' },
-  Amma:  { bg: 'bg-pink-500/15', text: 'text-pink-400',  border: 'border-pink-500/30' },
-  Ajai:  { bg: 'bg-success/15',  text: 'text-success',   border: 'border-success/30'  },
-  Mauli: { bg: 'bg-warning/15',  text: 'text-warning',   border: 'border-warning/30'  },
-};
+const COLOR_PALETTE = [
+  { bg: 'bg-blue-500/15',   text: 'text-blue-400',   border: 'border-blue-500/30'   },
+  { bg: 'bg-pink-500/15',   text: 'text-pink-400',   border: 'border-pink-500/30'   },
+  { bg: 'bg-success/15',    text: 'text-success',     border: 'border-success/30'    },
+  { bg: 'bg-warning/15',    text: 'text-warning',     border: 'border-warning/30'    },
+  { bg: 'bg-purple-500/15', text: 'text-purple-400',  border: 'border-purple-500/30' },
+  { bg: 'bg-orange-500/15', text: 'text-orange-400',  border: 'border-orange-500/30' },
+];
 
-const PERSON_EMOJI: Record<Person, string> = {
-  Appa: '👨', Amma: '👩', Ajai: '👦', Mauli: '👧',
-};
+const PERSON_COLOR_MAP: Record<string, typeof COLOR_PALETTE[0]> = {};
+let _colorIdx = 0;
+
+function getPersonColor(person: string) {
+  if (!PERSON_COLOR_MAP[person]) {
+    PERSON_COLOR_MAP[person] = COLOR_PALETTE[_colorIdx % COLOR_PALETTE.length];
+    _colorIdx++;
+  }
+  return PERSON_COLOR_MAP[person];
+}
+
+const getPersonEmoji = (_person: string) => '👤';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Lookup human-readable account name from id. */
-function accountLabel(id?: string): string | null {
+function accountLabel(id?: string, accounts: { id: string; name: string }[] = []): string | null {
   if (!id) return null;
-  return ACCOUNTS.find(a => a.id === id)?.name ?? id;
+  return accounts.find(a => a.id === id)?.name ?? id;
 }
 
 /**
@@ -49,9 +61,9 @@ function accountLabel(id?: string): string | null {
  *   "Appa CNB → Ajai"      (dest account unknown)
  *   "Appa → Ajai CB"       (source account unknown — legacy)
  */
-function transferLabel(t: ReturnType<typeof getMonthTransactions>[number]): string {
-  const from = accountLabel(t.accountId)             ?? t.person;
-  const to   = accountLabel(t.transferToAccountId)   ?? t.transferTo ?? '?';
+function transferLabel(t: ReturnType<typeof getMonthTransactions>[number], accounts: { id: string; name: string }[] = []): string {
+  const from = accountLabel(t.accountId, accounts)           ?? t.person;
+  const to   = accountLabel(t.transferToAccountId, accounts) ?? t.transferTo ?? '?';
   return `${from} → ${to}`;
 }
 
@@ -91,10 +103,11 @@ function PersonTxnPanel({
   person,
   txns,
 }: {
-  person: Person;
+  person: string;
   txns: ReturnType<typeof getMonthTransactions>;
 }) {
   const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+  const { accounts } = useAppData();
 
   // Bug 9: stable sort (date + id tiebreaker) via sortByDateDesc
   const personTxns = useMemo(() =>
@@ -120,16 +133,16 @@ function PersonTxnPanel({
       <div className="space-y-1 max-h-96 overflow-y-auto pr-1">
         {personTxns.map(t => {
           const isTransfer = t.type === 'transfer';
-          const srcAccount = accountLabel(t.accountId);
+          const srcAccount = accountLabel(t.accountId, accounts);
 
           // Primary label
-          const label = isTransfer ? transferLabel(t) : t.category;
+          const label = isTransfer ? transferLabel(t, accounts) : t.category;
 
           // Secondary sub-label (matches Transactions page style)
           // income/expense → "Category - AccountName"
           // transfer       → notes (if meaningful)
           const subLabel: string | null = isTransfer
-            ? (t.notes && t.notes !== `${t.person} → ${t.transferTo}` && t.notes !== transferLabel(t)
+            ? (t.notes && t.notes !== `${t.person} → ${t.transferTo}` && t.notes !== transferLabel(t, accounts)
                 ? t.notes
                 : null)
             : srcAccount
@@ -186,6 +199,7 @@ function PersonTxnPanel({
 
 export default function PersonWisePage() {
   const { state, selectedYear, selectedMonth, addTransaction } = useFinance();
+  const { persons, accounts } = useAppData();
 
   const fmt  = (n: number) => `₹${n.toLocaleString('en-IN')}`;
   const fmtK = (n: number) => {
@@ -196,7 +210,7 @@ export default function PersonWisePage() {
 
   // ── Per-person summary ───────────────────────────────────────────────────────
   const personData = useMemo(() =>
-    PERSONS.map(person => {
+    persons.map(person => {
       const bal = getPersonBalance(
         state.transactions, person,
         selectedYear, selectedMonth,
@@ -227,11 +241,10 @@ export default function PersonWisePage() {
     date: new Date().toISOString().split('T')[0],
   });
 
-  const fromAccounts = tf.from ? ACCOUNTS.filter(a => a.person === tf.from as Person) : [];
+  const fromAccounts = tf.from ? accounts.filter(a => a.person === tf.from) : [];
   const toAccounts   = tf.to
-    ? ACCOUNTS.filter(a =>
-        a.person === tf.to as Person &&
-        // Bug 7: filter same account out of dest list when same person
+    ? accounts.filter(a =>
+        a.person === tf.to &&
         !(tf.from === tf.to && a.id === tf.fromAccount)
       )
     : [];
@@ -245,8 +258,8 @@ export default function PersonWisePage() {
     const check = validateTransfer(tf.fromAccount || undefined, tf.toAccount || undefined);
     if (!check.ok) { toast.error(check.error!); return; }
 
-    const fromAccName = accountLabel(tf.fromAccount) ?? tf.from;
-    const toAccName   = accountLabel(tf.toAccount)   ?? tf.to;
+    const fromAccName = accountLabel(tf.fromAccount, accounts) ?? tf.from;
+    const toAccName   = accountLabel(tf.toAccount, accounts)   ?? tf.to;
     const autoNotes   = `${fromAccName} → ${toAccName}`;
 
     const d = new Date(tf.date);
@@ -254,10 +267,10 @@ export default function PersonWisePage() {
     // Bug 8: normalizeTransaction will fix paymentMode to match account type
     const raw = {
       date: tf.date, year: d.getFullYear(), month: d.getMonth(),
-      person: tf.from as Person, type: 'transfer' as const, category: 'Transfer',
+      person: tf.from, type: 'transfer' as const, category: 'Transfer',
       amount: amt, paymentMode: 'bank' as const,
       notes: tf.notes || autoNotes,
-      transferTo: tf.to as Person,
+      transferTo: tf.to,
       accountId: tf.fromAccount || undefined,
       transferToAccountId: tf.toAccount || undefined,
       homeOrDebt: 'home' as const,
@@ -275,7 +288,7 @@ export default function PersonWisePage() {
     [monthTxns],
   );
 
-  const [expandedPerson, setExpandedPerson] = useState<Person | null>(null);
+  const [expandedPerson, setExpandedPerson] = useState<string | null>(null);
 
   return (
     <div className="pb-20 px-4 pt-4 max-w-2xl mx-auto space-y-4 animate-slide-up">
@@ -298,7 +311,7 @@ export default function PersonWisePage() {
             <Crown className="h-3.5 w-3.5 text-warning" />
             <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">Top Earner</span>
           </div>
-          <p className="text-sm font-bold">{PERSON_EMOJI[highestEarner?.person]} {highestEarner?.person}</p>
+          <p className="text-sm font-bold">{getPersonEmoji(highestEarner?.person || "")} {highestEarner?.person}</p>
           <p className="text-xs text-success font-semibold">{fmt(highestEarner?.income || 0)}</p>
         </div>
         <div className="glass-card rounded-xl p-3">
@@ -306,7 +319,7 @@ export default function PersonWisePage() {
             <AlertCircle className="h-3.5 w-3.5 text-destructive" />
             <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">Top Spender</span>
           </div>
-          <p className="text-sm font-bold">{PERSON_EMOJI[highestSpender?.person]} {highestSpender?.person}</p>
+          <p className="text-sm font-bold">{getPersonEmoji(highestSpender?.person || "")} {highestSpender?.person}</p>
           <p className="text-xs text-destructive font-semibold">{fmt(highestSpender?.expense || 0)}</p>
         </div>
       </div>
@@ -326,7 +339,7 @@ export default function PersonWisePage() {
 
             <div className="space-y-1 mt-1">
               {personData.map(({ person, income, expense, closing, opening }) => {
-                const colors     = PERSON_COLORS[person];
+                const colors     = getPersonColor(person);
                 const isExpanded = expandedPerson === person;
                 const spendPct   = income > 0 ? Math.min((expense / income) * 100, 100) : 0;
 
@@ -343,7 +356,7 @@ export default function PersonWisePage() {
                     >
                       <div className="flex items-center gap-2 min-w-[360px]">
                         <div className="w-20 flex items-center gap-1.5 shrink-0">
-                          <span className="text-base">{PERSON_EMOJI[person]}</span>
+                          <span className="text-base">{getPersonEmoji(person)}</span>
                           <span className={cn('text-xs font-bold', colors.text)}>{person}</span>
                         </div>
                         <span className={cn(
@@ -435,6 +448,186 @@ export default function PersonWisePage() {
             </div>
           </div>
         </div>
+      </Section>
+
+      {/* ── Internal Transfer ── */}
+      <Section
+        title="Internal Transfer"
+        icon={<ArrowLeftRight className="h-4 w-4 text-primary" />}
+        defaultOpen={false}
+      >
+        <div className="mt-2 space-y-1.5">
+
+          {/* Info banner */}
+          <div className="rounded-lg bg-primary/5 border border-primary/15 p-2.5 mb-3">
+            <p className="text-[11px] text-muted-foreground">
+              <span className="font-semibold text-primary">↔ Balance Shift Only</span> — Transfers move money
+              between accounts and are <em>never counted as income or expense</em>.
+              Same-person transfers (e.g. Appa CNB → Appa Cash) are supported.
+            </p>
+          </div>
+
+          {/* From / To persons */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs">From Person</Label>
+              <Select
+                value={tf.from}
+                onValueChange={v => setTf(f => ({ ...f, from: v, fromAccount: '' }))}
+              >
+                <SelectTrigger className="mt-1 text-sm"><SelectValue placeholder="From" /></SelectTrigger>
+                <SelectContent>
+                  {persons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">To Person</Label>
+              <Select
+                value={tf.to}
+                onValueChange={v => setTf(f => ({ ...f, to: v, toAccount: '' }))}
+              >
+                <SelectTrigger className="mt-1 text-sm"><SelectValue placeholder="To" /></SelectTrigger>
+                <SelectContent>
+                  {/* Bug 7: same person allowed for intra-person account transfers */}
+                  {persons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Visual arrow */}
+          {tf.from && tf.to && (
+            <div className="flex items-center justify-center gap-3 py-1">
+              <span className={cn('text-sm font-bold', getPersonColor(tf.from)?.text)}>
+                {getPersonEmoji(tf.from)} {tf.from}
+              </span>
+              <ArrowRight className="h-4 w-4 text-primary" />
+              <span className={cn('text-sm font-bold', getPersonColor(tf.to)?.text)}>
+                {getPersonEmoji(tf.to)} {tf.to}
+              </span>
+            </div>
+          )}
+
+          {/* From account */}
+          {fromAccounts.length > 0 && (
+            <div>
+              <Label className="text-xs">From Account</Label>
+              <Select
+                value={tf.fromAccount}
+                onValueChange={v => setTf(f => ({ ...f, fromAccount: v }))}
+              >
+                <SelectTrigger className="mt-1 text-sm"><SelectValue placeholder="Select account" /></SelectTrigger>
+                <SelectContent>
+                  {fromAccounts.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* To account — Bug 7: same account filtered out */}
+          {toAccounts.length > 0 && (
+            <div>
+              <Label className="text-xs">To Account</Label>
+              <Select
+                value={tf.toAccount}
+                onValueChange={v => setTf(f => ({ ...f, toAccount: v }))}
+              >
+                <SelectTrigger className="mt-1 text-sm"><SelectValue placeholder="Select account" /></SelectTrigger>
+                <SelectContent>
+                  {toAccounts.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Amount + Date */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs">Amount (₹)</Label>
+              <Input
+                type="number" placeholder="0" value={tf.amount}
+                onChange={e => setTf(f => ({ ...f, amount: e.target.value }))}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Date</Label>
+              <Input
+                type="date" value={tf.date}
+                onChange={e => setTf(f => ({ ...f, date: e.target.value }))}
+                className="mt-1"
+              />
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <Label className="text-xs">Notes (optional)</Label>
+            <Input
+              placeholder="e.g. Ajai paid for Appa's medicine"
+              value={tf.notes}
+              onChange={e => setTf(f => ({ ...f, notes: e.target.value }))}
+              className="mt-1"
+            />
+          </div>
+
+          <Button
+            onClick={doTransfer}
+            className="w-full gradient-primary text-primary-foreground mt-1"
+            size="sm"
+            disabled={!tf.from || !tf.to || !tf.amount}
+          >
+            <ArrowLeftRight className="h-3.5 w-3.5 mr-1.5" /> Record Transfer
+          </Button>
+        </div>
+
+        {/* Transfer history — Bug 3 (account labels) + Bug 9 (stable sort) */}
+        {transferHistory.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-border/40">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Transfer History — {MONTH_NAMES[selectedMonth]}
+            </p>
+            <div className="space-y-1.5">
+              {transferHistory.map(t => {
+                const fromLabel = accountLabel(t.accountId, accounts)           ?? t.person;
+                const toLabel   = accountLabel(t.transferToAccountId, accounts) ?? t.transferTo ?? '?';
+                return (
+                  <div
+                    key={t.id}
+                    className="flex items-center justify-between text-xs rounded-lg bg-primary/5 px-3 py-2"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {/* Bug 3: shows account names */}
+                      <span className="font-semibold text-blue-400 truncate max-w-[80px]">{fromLabel}</span>
+                      <ArrowRight className="h-3 w-3 text-primary shrink-0" />
+                      <span className="font-semibold text-blue-400 truncate max-w-[80px]">{toLabel}</span>
+                      <span className="text-muted-foreground text-[10px] ml-1 shrink-0">
+                        {new Date(t.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {t.notes && t.notes !== `${fromLabel} → ${toLabel}` && (
+                        <span className="text-[10px] text-muted-foreground truncate max-w-[70px]">
+                          {t.notes}
+                        </span>
+                      )}
+                      <span className="font-bold text-primary tabular-nums">
+                        {`₹${t.amount.toLocaleString('en-IN')}`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="flex justify-between text-xs font-bold pt-1">
+                <span className="text-muted-foreground">Total transferred</span>
+                <span className="text-primary tabular-nums">
+                  {`₹${transferHistory.reduce((s, t) => s + t.amount, 0).toLocaleString('en-IN')}`}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </Section>
 
       <TransactionForm />

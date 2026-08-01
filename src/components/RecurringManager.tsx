@@ -1,8 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
+import { useAppData } from '@/hooks/useAppData';
 import {
-  PERSONS, HOME_INCOME_CATEGORIES, DEBT_INCOME_CATEGORIES,
-  EXPENSE_CATEGORIES, DEBT_EXPENSE_CATEGORIES, ACCOUNTS,
   Person, HomeOrDebt,
 } from '@/lib/types';
 import { getMonthTransactions } from '@/lib/financial-store';
@@ -61,6 +60,7 @@ function Section({ title, icon, children, defaultOpen = false, badge }: {
 
 export default function RecurringManager() {
   const { state, selectedYear, selectedMonth, addTransaction, addRecurring, deleteRecurring } = useFinance();
+  const { persons, getCategoriesFor, getAccountsForPerson } = useAppData();
 
   // Cast recurring entries to smart entries (with frequency field)
   const smartEntries: SmartRecurringEntry[] = (state.recurringEntries as SmartRecurringEntry[]);
@@ -99,11 +99,11 @@ export default function RecurringManager() {
     accountId: '',
   });
 
-  const categories = form.type === 'income'
-    ? (form.homeOrDebt === 'home' ? [...HOME_INCOME_CATEGORIES] : [...DEBT_INCOME_CATEGORIES])
-    : (form.homeOrDebt === 'debt' ? [...DEBT_EXPENSE_CATEGORIES] : [...EXPENSE_CATEGORIES]);
-
-  const personAccounts = form.person ? ACCOUNTS.filter(a => a.person === form.person as Person) : [];
+  const categories = getCategoriesFor(
+    form.type as 'income' | 'expense',
+    form.homeOrDebt as 'home' | 'debt',
+  );
+  const personAccounts = form.person ? getAccountsForPerson(form.person) : [];
 
   const addRec = () => {
     if (!form.person || !form.category || !form.amount) {
@@ -416,7 +416,7 @@ export default function RecurringManager() {
               <Label className="text-xs">Person</Label>
               <Select value={form.person} onValueChange={v => setForm(f => ({ ...f, person: v, accountId: '' }))}>
                 <SelectTrigger className="mt-1 text-sm"><SelectValue placeholder="Person" /></SelectTrigger>
-                <SelectContent>{PERSONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                <SelectContent>{persons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>

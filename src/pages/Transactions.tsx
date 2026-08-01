@@ -1,10 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
+import { useAppData } from '@/hooks/useAppData';
 import { getMonthTransactions } from '@/lib/financial-store';
-import {
-  PERSONS, Transaction, HOME_INCOME_CATEGORIES, DEBT_INCOME_CATEGORIES,
-  EXPENSE_CATEGORIES, DEBT_EXPENSE_CATEGORIES, ACCOUNTS, PaymentMode, HomeOrDebt, Person,
-} from '@/lib/types';
+import { Transaction, PaymentMode, HomeOrDebt } from '@/lib/types';
 import MonthSelector from '@/components/MonthSelector';
 import TransactionForm from '@/components/TransactionForm';
 import DataControls from '@/components/DataControls';
@@ -25,14 +23,6 @@ import { toast } from 'sonner';
 // ── Changed from 15 to 50 per page ────────────────────────────────────────────
 const PAGE_SIZE = 50;
 
-// ─── All categories for filter dropdown ───────────────────────────────────────
-const ALL_CATEGORIES = [
-  ...HOME_INCOME_CATEGORIES,
-  ...DEBT_INCOME_CATEGORIES,
-  ...EXPENSE_CATEGORIES,
-  ...DEBT_EXPENSE_CATEGORIES,
-] as string[];
-
 // ─── Edit/Copy Dialog ──────────────────────────────────────────────────────────
 
 function TxnDialog({ open, onClose, initial, mode, onSave }: {
@@ -43,26 +33,19 @@ function TxnDialog({ open, onClose, initial, mode, onSave }: {
   onSave: (t: Partial<Transaction>) => void;
 }) {
   const { state } = useFinance();
+  const { persons, accounts, getAccountsForPerson, getCategoriesFor } = useAppData();
   const [form, setForm] = useState<Partial<Transaction>>({ ...initial });
 
-  const customIncome  = state.incomeSources  || [];
-  const customExpense = state.expenseSources || [];
+  const cats = getCategoriesFor(
+    (form.type as 'income' | 'expense' | 'transfer') || 'expense',
+    (form.homeOrDebt as 'home' | 'debt') || 'home',
+  );
 
-  const cats: string[] = form.type === 'income'
-    ? form.homeOrDebt === 'home'
-      ? [...HOME_INCOME_CATEGORIES, ...customIncome.filter(s => s.group === 'home').map(s => s.name)]
-      : [...DEBT_INCOME_CATEGORIES, ...customIncome.filter(s => s.group === 'debt').map(s => s.name)]
-    : form.type === 'expense'
-      ? form.homeOrDebt === 'debt'
-        ? [...DEBT_EXPENSE_CATEGORIES, ...customExpense.filter(s => s.group === 'debt').map(s => s.name)]
-        : [...EXPENSE_CATEGORIES,      ...customExpense.filter(s => s.group === 'home').map(s => s.name)]
-      : [];
-
-  const personAccounts = form.person ? ACCOUNTS.filter(a => a.person === form.person as Person) : [];
+  const personAccounts = form.person ? getAccountsForPerson(form.person) : [];
   const toAccounts = form.transferTo
     ? form.transferTo === form.person
-      ? ACCOUNTS.filter(a => a.person === form.transferTo as Person && a.id !== form.accountId)
-      : ACCOUNTS.filter(a => a.person === form.transferTo as Person)
+      ? accounts.filter(a => a.person === form.transferTo && a.id !== form.accountId)
+      : accounts.filter(a => a.person === form.transferTo)
     : [];
 
   const handleSave = () => {
@@ -126,9 +109,9 @@ function TxnDialog({ open, onClose, initial, mode, onSave }: {
           <div>
             <Label className="text-xs">Person</Label>
             <Select value={form.person}
-              onValueChange={v => setForm(f => ({ ...f, person: v as Person, accountId: '', transferTo: undefined, transferToAccountId: undefined }))}>
+              onValueChange={v => setForm(f => ({ ...f, person: v, accountId: '', transferTo: undefined, transferToAccountId: undefined }))}>
               <SelectTrigger className="mt-1"><SelectValue placeholder="Person" /></SelectTrigger>
-              <SelectContent>{PERSONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+              <SelectContent>{persons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           {/* Account */}
@@ -146,9 +129,9 @@ function TxnDialog({ open, onClose, initial, mode, onSave }: {
             <>
               <div>
                 <Label className="text-xs">Transfer To Person</Label>
-                <Select value={form.transferTo || ''} onValueChange={v => setForm(f => ({ ...f, transferTo: v as Person, transferToAccountId: '' }))}>
+                <Select value={form.transferTo || ''} onValueChange={v => setForm(f => ({ ...f, transferTo: v, transferToAccountId: '' }))}>
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Recipient" /></SelectTrigger>
-                  <SelectContent>{PERSONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                  <SelectContent>{persons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               {form.transferTo && toAccounts.length > 0 && (
@@ -205,11 +188,12 @@ function TxnDialog({ open, onClose, initial, mode, onSave }: {
 
 // ─── Transaction Card ──────────────────────────────────────────────────────────
 
-function TxnCard({ t, fmt, onEdit, onCopy, onDelete }: {
+function TxnCard({ t, fmt, accounts, onEdit, onCopy, onDelete }: {
   t: Transaction; fmt: (n: number) => string;
+  accounts: { id: string; name: string }[];
   onEdit: () => void; onCopy: () => void; onDelete: () => void;
 }) {
-  const accountName = t.accountId ? ACCOUNTS.find(a => a.id === t.accountId)?.name : null;
+  const accountName = t.accountId ? accounts.find(a => a.id === t.accountId)?.name : null;
 
   return (
     <div className="glass-card rounded-xl p-3">
@@ -273,48 +257,50 @@ export default function Transactions() {
     state, selectedYear, selectedMonth,
     deleteTransaction, updateTransaction, addTransaction,
   } = useFinance();
+  const { persons, accounts, allCategories } = useAppData();
 
-  const [search, setSearch]               = useState('');
-  const [filterPerson, setFilterPerson]   = useState('all');
-  const [filterType, setFilterType]       = useState('all');
+  const [search, setSearch]                 = useState('');
+  const [filterPerson, setFilterPerson]     = useState('all');
+  const [filterType, setFilterType]         = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
-  const [filterAccount, setFilterAccount] = useState('all');
-  const [filterDate, setFilterDate]       = useState('');
-  const [page, setPage]                   = useState(1);
-  const [editTarget, setEditTarget]       = useState<Transaction | null>(null);
-  const [copyTarget, setCopyTarget]       = useState<Transaction | null>(null);
-  const [deleteTarget, setDeleteTarget]   = useState<Transaction | null>(null);
+  const [filterAccount, setFilterAccount]   = useState('all');
+  const [filterDate, setFilterDate]         = useState('');
+  const [page, setPage]                     = useState(1);
+  const [editTarget, setEditTarget]         = useState<Transaction | null>(null);
+  const [copyTarget, setCopyTarget]         = useState<Transaction | null>(null);
+  const [deleteTarget, setDeleteTarget]     = useState<Transaction | null>(null);
 
   const today = new Date().toISOString().split('T')[0];
-  const hasActiveFilters = search || filterPerson !== 'all' || filterType !== 'all' || filterDate || filterCategory !== 'all' || filterAccount !== 'all';
+  const hasActiveFilters = search || filterPerson !== 'all' || filterType !== 'all'
+    || filterDate || filterCategory !== 'all' || filterAccount !== 'all';
 
   const clearAllFilters = () => {
     setSearch(''); setFilterPerson('all'); setFilterType('all');
     setFilterCategory('all'); setFilterAccount('all'); setFilterDate(''); setPage(1);
   };
 
-  // Build unique category list for dropdown (from this month's txns + static lists)
+  // Categories: dynamic from settings + any categories seen in actual transactions
   const categoryOptions = useMemo(() => {
     const fromTxns = getMonthTransactions(state.transactions, selectedYear, selectedMonth)
       .map(t => t.category).filter(Boolean);
-    const merged = Array.from(new Set([...ALL_CATEGORIES, ...fromTxns])).sort();
-    return merged;
-  }, [state.transactions, selectedYear, selectedMonth]);
+    return Array.from(new Set([...allCategories, ...fromTxns])).sort();
+  }, [allCategories, state.transactions, selectedYear, selectedMonth]);
 
-  // Account options — filtered by selected person if one is chosen
-  const accountOptions = useMemo(() => {
-    return filterPerson !== 'all'
-      ? ACCOUNTS.filter(a => a.person === filterPerson)
-      : ACCOUNTS;
-  }, [filterPerson]);
+  // Accounts for filter: scoped to selected person
+  const accountOptions = useMemo(() =>
+    filterPerson !== 'all' ? accounts.filter(a => a.person === filterPerson) : accounts,
+    [accounts, filterPerson],
+  );
 
   const allTxns = useMemo(() => {
     let list = getMonthTransactions(state.transactions, selectedYear, selectedMonth);
-    if (filterPerson   !== 'all') list = list.filter(t => t.person   === filterPerson);
-    if (filterType     !== 'all') list = list.filter(t => t.type     === filterType);
+    if (filterPerson   !== 'all') list = list.filter(t => t.person === filterPerson);
+    if (filterType     !== 'all') list = list.filter(t => t.type === filterType);
     if (filterCategory !== 'all') list = list.filter(t => t.category === filterCategory);
-    if (filterAccount  !== 'all') list = list.filter(t => t.accountId === filterAccount || t.transferToAccountId === filterAccount);
-    if (filterDate)                list = list.filter(t => t.date     === filterDate);
+    if (filterAccount  !== 'all') list = list.filter(t =>
+      t.accountId === filterAccount || t.transferToAccountId === filterAccount,
+    );
+    if (filterDate) list = list.filter(t => t.date === filterDate);
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(t =>
@@ -411,7 +397,7 @@ export default function Transactions() {
             <SelectTrigger className="flex-1"><SelectValue placeholder="Person" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Persons</SelectItem>
-              {PERSONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              {persons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={filterType} onValueChange={v => { setFilterType(v); resetPage(); }}>
@@ -423,16 +409,18 @@ export default function Transactions() {
               <SelectItem value="transfer">Transfer</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={filterCategory} onValueChange={v => { setFilterCategory(v); resetPage(); }}>
+        </div>
+
+        {/* Row 2: Category */}
+        <Select value={filterCategory} onValueChange={v => { setFilterCategory(v); resetPage(); }}>
           <SelectTrigger className="w-full"><SelectValue placeholder="All Categories" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
             {categoryOptions.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
           </SelectContent>
         </Select>
-        </div>
 
-        {/* Row 2: Account filter */}
+        {/* Row 3: Account (scoped to selected person) */}
         <Select value={filterAccount} onValueChange={v => { setFilterAccount(v); resetPage(); }}>
           <SelectTrigger className="w-full"><SelectValue placeholder="All Accounts" /></SelectTrigger>
           <SelectContent>
@@ -496,7 +484,7 @@ export default function Transactions() {
               </div>
               <div className="space-y-2">
                 {txns.map(t => (
-                  <TxnCard key={t.id} t={t} fmt={fmt}
+                  <TxnCard key={t.id} t={t} fmt={fmt} accounts={accounts}
                     onEdit={() => setEditTarget(t)}
                     onCopy={() => setCopyTarget({ ...t, date: today })}
                     onDelete={() => setDeleteTarget(t)}

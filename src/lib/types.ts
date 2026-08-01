@@ -1,9 +1,9 @@
 export type TransactionType = 'income' | 'expense' | 'transfer';
 export type PaymentMode = 'cash' | 'bank';
-export type Person = 'Appa' | 'Amma' | 'Ajai' | 'Mauli';
+export type Person = string;           // Dynamic — configured in Settings
 export type HomeOrDebt = 'home' | 'debt';
 
-export const PERSONS: Person[] = ['Appa', 'Amma', 'Ajai', 'Mauli'];
+export const PERSONS: Person[] = [];   // Empty default — use state.customPersons
 
 export interface Account {
   id: string;
@@ -139,6 +139,8 @@ export interface FinancialState {
   accountNames?: Record<string, string>;
   // ✅ Dynamic accounts (CRUD) — replaces hardcoded ACCOUNTS
   customAccounts?: Account[];
+  // ✅ Dynamic persons (CRUD) — replaces hardcoded PERSONS
+  customPersons?: string[];
 }
 
 export const MONTH_NAMES = [

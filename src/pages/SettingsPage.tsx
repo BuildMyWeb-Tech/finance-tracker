@@ -1,13 +1,16 @@
 /**
  * SettingsPage.tsx — Fully Dynamic CRUD Settings
- * All 4 sections are 100% database-driven — no hardcoded built-ins shown.
- * Accounts, Balances, Income Sources, Expense Sources all fully CRUD.
+ * Section 0: Family Members (persons) — controls who appears in every dropdown
+ * Section 1: Accounts CRUD — per-person cash/bank accounts
+ * Section 2: Opening Balances — uses only accounts from Section 1
+ * Section 3: Income Sources CRUD
+ * Section 4: Expense Sources CRUD
+ * Zero hardcode — everything flows from DB via FinanceContext.
  */
 
 import { useState } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
-import { PERSONS, Person, Account } from '@/lib/types';
-import type { IncomeSource, ExpenseSource } from '@/lib/types';
+import type { Account, IncomeSource, ExpenseSource } from '@/lib/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -24,7 +27,7 @@ import { toast } from 'sonner';
 import {
   Plus, Trash2, Pencil, Check, X,
   ChevronDown, ChevronUp, Wallet, TrendingUp,
-  TrendingDown, IndianRupee,
+  TrendingDown, IndianRupee, Users,
 } from 'lucide-react';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -34,10 +37,10 @@ function uid() {
 }
 
 function slugify(name: string, person: string) {
-  return `${person.toLowerCase()}-${name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}-${Date.now().toString(36)}`;
+  return `${person.toLowerCase().replace(/\s+/g, '-')}-${name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}-${Date.now().toString(36)}`;
 }
 
-// ─── Section Accordion ───────────────────────────────────────────────────────
+// ─── Accordion Section ────────────────────────────────────────────────────────
 
 function Section({
   title, children, defaultOpen = false, icon,
@@ -53,18 +56,14 @@ function Section({
         onClick={() => setOpen(o => !o)}
       >
         <div className="flex items-center gap-2">{icon}<span>{title}</span></div>
-        {open
-          ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
-          : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
       </button>
       {open && <div className="px-4 pb-4">{children}</div>}
     </div>
   );
 }
 
-// ─── Badge ───────────────────────────────────────────────────────────────────
-
-function Badge({ group }: { group: 'home' | 'debt' }) {
+function GroupBadge({ group }: { group: 'home' | 'debt' }) {
   return (
     <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 font-medium ${
       group === 'home'
@@ -76,7 +75,73 @@ function Badge({ group }: { group: 'home' | 'debt' }) {
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Generic Source Row ───────────────────────────────────────────────────────
+
+type AnySource = IncomeSource | ExpenseSource;
+
+function SourceRow<T extends AnySource>({
+  source, isEditing, editFields, setEditFields,
+  onEdit, onSave, onCancel, onDelete, amountKey, amountLabel,
+}: {
+  source: T; isEditing: boolean;
+  editFields: Partial<T>; setEditFields: (f: Partial<T>) => void;
+  onEdit: () => void; onSave: () => void; onCancel: () => void;
+  onDelete: () => void; amountKey: string; amountLabel: string;
+}) {
+  const amt = (source as any)[amountKey] as number;
+  const editAmt = (editFields as any)[amountKey];
+  return (
+    <div className="flex items-center gap-1.5 py-1.5 px-2 rounded-lg bg-muted/20 border border-border/30 text-xs mb-1">
+      {isEditing ? (
+        <>
+          <Input
+            className="flex-1 h-6 text-xs min-w-0"
+            value={(editFields.name ?? source.name) as string}
+            onChange={e => setEditFields({ ...editFields, name: e.target.value } as Partial<T>)}
+            autoFocus
+          />
+          <Select
+            value={(editFields.group ?? source.group) as string}
+            onValueChange={v => setEditFields({ ...editFields, group: v as 'home' | 'debt' } as Partial<T>)}
+          >
+            <SelectTrigger className="w-20 h-6 text-[10px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="home">🏠 Home</SelectItem>
+              <SelectItem value="debt">💳 Debt</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            type="number"
+            placeholder={amountLabel}
+            className="w-20 h-6 text-xs"
+            value={editAmt ?? amt}
+            onChange={e => setEditFields({ ...editFields, [amountKey]: Number(e.target.value) } as Partial<T>)}
+          />
+          <button onClick={onSave} className="text-green-500 shrink-0"><Check className="h-3.5 w-3.5" /></button>
+          <button onClick={onCancel} className="text-muted-foreground shrink-0"><X className="h-3.5 w-3.5" /></button>
+        </>
+      ) : (
+        <>
+          <span className="flex-1 font-medium truncate">{source.name}</span>
+          <GroupBadge group={source.group} />
+          {amt > 0 && (
+            <span className="text-[10px] text-muted-foreground shrink-0 font-mono">
+              ₹{amt.toLocaleString('en-IN')}
+            </span>
+          )}
+          <button onClick={onEdit} className="text-muted-foreground hover:text-primary shrink-0">
+            <Pencil className="h-3 w-3" />
+          </button>
+          <button onClick={onDelete} className="text-muted-foreground hover:text-destructive shrink-0">
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
   const {
@@ -85,43 +150,81 @@ export default function SettingsPage() {
     setIncomeSources,
     setExpenseSources,
     setCustomAccounts,
+    setCustomPersons,
   } = useFinance();
 
-  // ── Derive dynamic accounts (fall back to empty — no hardcode) ────────────
+  const persons: string[]  = state.customPersons  ?? [];
   const accounts: Account[] = state.customAccounts ?? [];
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SECTION 0 — PERSONS CRUD
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const [newPersonName, setNewPersonName]   = useState('');
+  const [editingPersonIdx, setEditingPersonIdx] = useState<number | null>(null);
+  const [editPersonVal, setEditPersonVal]   = useState('');
+  const [deletePersonTarget, setDeletePersonTarget] = useState<string | null>(null);
+
+  const addPerson = () => {
+    const name = newPersonName.trim();
+    if (!name) { toast.error('Enter a name'); return; }
+    if (persons.some(p => p.toLowerCase() === name.toLowerCase())) {
+      toast.error('Person already exists'); return;
+    }
+    setCustomPersons([...persons, name]);
+    setNewPersonName('');
+    toast.success(`${name} added`);
+  };
+
+  const savePersonEdit = (idx: number) => {
+    const name = editPersonVal.trim();
+    if (!name) { toast.error('Enter a name'); return; }
+    const updated = [...persons];
+    updated[idx] = name;
+    setCustomPersons(updated);
+    // Also update accounts that reference old name
+    const oldName = persons[idx];
+    const updatedAccounts = accounts.map(a =>
+      a.person === oldName ? { ...a, person: name } : a
+    );
+    setCustomAccounts(updatedAccounts);
+    setEditingPersonIdx(null);
+    toast.success('Updated');
+  };
+
+  const deletePerson = (name: string) => {
+    setCustomPersons(persons.filter(p => p !== name));
+    // Also remove accounts belonging to this person
+    setCustomAccounts(accounts.filter(a => a.person !== name));
+    setDeletePersonTarget(null);
+    toast.success(`${name} removed`);
+  };
 
   // ══════════════════════════════════════════════════════════════════════════
   // SECTION 1 — ACCOUNTS CRUD
   // ══════════════════════════════════════════════════════════════════════════
 
-  const [newAcctPerson, setNewAcctPerson] = useState<Person>('Ajai');
+  const [newAcctPerson, setNewAcctPerson] = useState('');
   const [newAcctName, setNewAcctName]     = useState('');
   const [newAcctType, setNewAcctType]     = useState<'cash' | 'bank'>('cash');
-
-  const [editingAcctId, setEditingAcctId]   = useState<string | null>(null);
+  const [editingAcctId, setEditingAcctId] = useState<string | null>(null);
   const [editAcctFields, setEditAcctFields] = useState<Partial<Account>>({});
   const [deleteAcctTarget, setDeleteAcctTarget] = useState<Account | null>(null);
 
   const addAccount = () => {
+    if (!newAcctPerson) { toast.error('Select a person'); return; }
     if (!newAcctName.trim()) { toast.error('Enter account name'); return; }
     const id = slugify(newAcctName, newAcctPerson);
-    if (accounts.some(a => a.id === id || a.name.toLowerCase() === newAcctName.trim().toLowerCase())) {
-      toast.error('Account already exists'); return;
+    if (accounts.some(a => a.name.toLowerCase() === newAcctName.trim().toLowerCase() && a.person === newAcctPerson)) {
+      toast.error('Account already exists for this person'); return;
     }
-    const updated: Account[] = [
-      ...accounts,
-      { id, person: newAcctPerson, name: newAcctName.trim(), type: newAcctType },
-    ];
-    setCustomAccounts(updated);
+    setCustomAccounts([...accounts, { id, person: newAcctPerson, name: newAcctName.trim(), type: newAcctType }]);
     setNewAcctName('');
     toast.success('Account added');
   };
 
   const saveAcctEdit = (id: string) => {
-    const updated = accounts.map(a =>
-      a.id === id ? { ...a, ...editAcctFields } : a
-    );
-    setCustomAccounts(updated);
+    setCustomAccounts(accounts.map(a => a.id === id ? { ...a, ...editAcctFields } : a));
     setEditingAcctId(null);
     toast.success('Account updated');
   };
@@ -152,13 +255,11 @@ export default function SettingsPage() {
   // ══════════════════════════════════════════════════════════════════════════
 
   const incomeSources: IncomeSource[] = state.incomeSources ?? [];
-
-  const [newIncomeName, setNewIncomeName]       = useState('');
-  const [newIncomeGroup, setNewIncomeGroup]     = useState<'home' | 'debt'>('home');
+  const [newIncomeName, setNewIncomeName]         = useState('');
+  const [newIncomeGroup, setNewIncomeGroup]       = useState<'home' | 'debt'>('home');
   const [newIncomeExpected, setNewIncomeExpected] = useState('');
-
-  const [editingIncomeId, setEditingIncomeId]   = useState<string | null>(null);
-  const [editIncomeFields, setEditIncomeFields] = useState<Partial<IncomeSource>>({});
+  const [editingIncomeId, setEditingIncomeId]     = useState<string | null>(null);
+  const [editIncomeFields, setEditIncomeFields]   = useState<Partial<IncomeSource>>({});
   const [deleteIncomeTarget, setDeleteIncomeTarget] = useState<IncomeSource | null>(null);
 
   const addIncomeSource = () => {
@@ -166,16 +267,10 @@ export default function SettingsPage() {
     if (incomeSources.some(s => s.name.toLowerCase() === newIncomeName.trim().toLowerCase())) {
       toast.error('Income source already exists'); return;
     }
-    const updated: IncomeSource[] = [
-      ...incomeSources,
-      {
-        id: uid(),
-        name: newIncomeName.trim(),
-        group: newIncomeGroup,
-        defaultExpected: Number(newIncomeExpected) || 0,
-      },
-    ];
-    setIncomeSources(updated);
+    setIncomeSources([...incomeSources, {
+      id: uid(), name: newIncomeName.trim(),
+      group: newIncomeGroup, defaultExpected: Number(newIncomeExpected) || 0,
+    }]);
     setNewIncomeName(''); setNewIncomeExpected('');
     toast.success('Income source added');
   };
@@ -186,22 +281,14 @@ export default function SettingsPage() {
     toast.success('Updated');
   };
 
-  const deleteIncome = (s: IncomeSource) => {
-    setIncomeSources(incomeSources.filter(x => x.id !== s.id));
-    setDeleteIncomeTarget(null);
-    toast.success('Deleted');
-  };
-
   // ══════════════════════════════════════════════════════════════════════════
   // SECTION 4 — EXPENSE SOURCES CRUD
   // ══════════════════════════════════════════════════════════════════════════
 
   const expenseSources: ExpenseSource[] = state.expenseSources ?? [];
-
-  const [newExpenseName, setNewExpenseName]     = useState('');
-  const [newExpenseGroup, setNewExpenseGroup]   = useState<'home' | 'debt'>('home');
-  const [newExpenseBudget, setNewExpenseBudget] = useState('');
-
+  const [newExpenseName, setNewExpenseName]       = useState('');
+  const [newExpenseGroup, setNewExpenseGroup]     = useState<'home' | 'debt'>('home');
+  const [newExpenseBudget, setNewExpenseBudget]   = useState('');
   const [editingExpenseId, setEditingExpenseId]   = useState<string | null>(null);
   const [editExpenseFields, setEditExpenseFields] = useState<Partial<ExpenseSource>>({});
   const [deleteExpenseTarget, setDeleteExpenseTarget] = useState<ExpenseSource | null>(null);
@@ -211,16 +298,10 @@ export default function SettingsPage() {
     if (expenseSources.some(s => s.name.toLowerCase() === newExpenseName.trim().toLowerCase())) {
       toast.error('Expense source already exists'); return;
     }
-    const updated: ExpenseSource[] = [
-      ...expenseSources,
-      {
-        id: uid(),
-        name: newExpenseName.trim(),
-        group: newExpenseGroup,
-        defaultBudget: Number(newExpenseBudget) || 0,
-      },
-    ];
-    setExpenseSources(updated);
+    setExpenseSources([...expenseSources, {
+      id: uid(), name: newExpenseName.trim(),
+      group: newExpenseGroup, defaultBudget: Number(newExpenseBudget) || 0,
+    }]);
     setNewExpenseName(''); setNewExpenseBudget('');
     toast.success('Expense source added');
   };
@@ -231,77 +312,6 @@ export default function SettingsPage() {
     toast.success('Updated');
   };
 
-  const deleteExpense = (s: ExpenseSource) => {
-    setExpenseSources(expenseSources.filter(x => x.id !== s.id));
-    setDeleteExpenseTarget(null);
-    toast.success('Deleted');
-  };
-
-  // ─── Row component for income/expense ─────────────────────────────────────
-
-  function SourceRow<T extends IncomeSource | ExpenseSource>({
-    source, isEditing, editFields, setEditFields,
-    onEdit, onSave, onCancel, onDelete,
-    amountKey, amountLabel,
-  }: {
-    source: T; isEditing: boolean;
-    editFields: Partial<T>; setEditFields: (f: Partial<T>) => void;
-    onEdit: () => void; onSave: () => void; onCancel: () => void;
-    onDelete: () => void; amountKey: string; amountLabel: string;
-  }) {
-    const amt = (source as any)[amountKey] as number;
-    const editAmt = (editFields as any)[amountKey];
-    return (
-      <div className="flex items-center gap-1.5 py-1.5 px-2 rounded-lg bg-muted/20 border border-border/30 text-xs">
-        {isEditing ? (
-          <>
-            <Input
-              className="flex-1 h-6 text-xs min-w-0"
-              value={(editFields.name ?? source.name) as string}
-              onChange={e => setEditFields({ ...editFields, name: e.target.value } as Partial<T>)}
-              autoFocus
-            />
-            <Select
-              value={(editFields.group ?? source.group) as string}
-              onValueChange={v => setEditFields({ ...editFields, group: v as 'home' | 'debt' } as Partial<T>)}
-            >
-              <SelectTrigger className="w-20 h-6 text-[10px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="home">🏠 Home</SelectItem>
-                <SelectItem value="debt">💳 Debt</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input
-              type="number"
-              placeholder={amountLabel}
-              className="w-20 h-6 text-xs"
-              value={editAmt ?? amt}
-              onChange={e => setEditFields({ ...editFields, [amountKey]: Number(e.target.value) } as Partial<T>)}
-            />
-            <button onClick={onSave} className="text-green-500 shrink-0"><Check className="h-3.5 w-3.5" /></button>
-            <button onClick={onCancel} className="text-muted-foreground shrink-0"><X className="h-3.5 w-3.5" /></button>
-          </>
-        ) : (
-          <>
-            <span className="flex-1 font-medium truncate">{source.name}</span>
-            <Badge group={source.group} />
-            {amt > 0 && (
-              <span className="text-[10px] text-muted-foreground shrink-0 font-mono">
-                ₹{amt.toLocaleString('en-IN')}
-              </span>
-            )}
-            <button onClick={onEdit} className="text-muted-foreground hover:text-primary shrink-0">
-              <Pencil className="h-3 w-3" />
-            </button>
-            <button onClick={onDelete} className="text-muted-foreground hover:text-destructive shrink-0">
-              <Trash2 className="h-3 w-3" />
-            </button>
-          </>
-        )}
-      </div>
-    );
-  }
-
   // ═══════════════════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════════════════
@@ -310,21 +320,92 @@ export default function SettingsPage() {
     <div className="pb-20 px-4 pt-4 max-w-lg mx-auto space-y-4 animate-slide-up">
       <h1 className="text-xl font-bold text-foreground">Settings</h1>
 
-      {/* ── SECTION 1: ACCOUNTS CRUD ───────────────────────────────────── */}
+      {/* ── SECTION 0: FAMILY MEMBERS ─────────────────────────────────────── */}
       <Section
-        title={`Accounts (${accounts.length})`}
+        title={`Family Members (${persons.length})`}
         defaultOpen
-        icon={<Wallet className="h-4 w-4 text-primary" />}
+        icon={<Users className="h-4 w-4 text-primary" />}
       >
         <div className="space-y-1.5 mt-2">
-          {accounts.length === 0 && (
+          {persons.length === 0 && (
             <p className="text-xs text-muted-foreground text-center py-3">
-              No accounts yet. Add your first account below.
+              No family members yet. Add them below — they will appear in all dropdowns.
             </p>
           )}
 
-          {/* Group by person */}
-          {PERSONS.map(person => {
+          {persons.map((person, idx) => (
+            <div key={idx} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-muted/20 border border-border/30 text-xs mb-1">
+              {editingPersonIdx === idx ? (
+                <>
+                  <Input
+                    className="flex-1 h-6 text-xs"
+                    value={editPersonVal}
+                    onChange={e => setEditPersonVal(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && savePersonEdit(idx)}
+                    autoFocus
+                  />
+                  <button onClick={() => savePersonEdit(idx)} className="text-green-500 shrink-0">
+                    <Check className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={() => setEditingPersonIdx(null)} className="text-muted-foreground shrink-0">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="text-base">👤</span>
+                  <span className="flex-1 font-medium">{person}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {accounts.filter(a => a.person === person).length} accounts
+                  </span>
+                  <button
+                    onClick={() => { setEditingPersonIdx(idx); setEditPersonVal(person); }}
+                    className="text-muted-foreground hover:text-primary shrink-0"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={() => setDeletePersonTarget(person)}
+                    className="text-muted-foreground hover:text-destructive shrink-0"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+
+          <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
+            <p className="text-xs font-semibold text-foreground">Add Family Member</p>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Name (e.g. Appa, Ajai, Amma…)"
+                value={newPersonName}
+                onChange={e => setNewPersonName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addPerson()}
+                className="text-sm flex-1"
+              />
+              <Button onClick={addPerson} size="sm" className="shrink-0">
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* ── SECTION 1: ACCOUNTS CRUD ───────────────────────────────────────── */}
+      <Section
+        title={`Accounts (${accounts.length})`}
+        icon={<Wallet className="h-4 w-4 text-primary" />}
+      >
+        <div className="space-y-1 mt-2">
+          {accounts.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-3">
+              Add family members first, then add their accounts here.
+            </p>
+          )}
+
+          {persons.map(person => {
             const personAccounts = accounts.filter(a => a.person === person);
             if (!personAccounts.length) return null;
             return (
@@ -333,10 +414,7 @@ export default function SettingsPage() {
                   {person}
                 </p>
                 {personAccounts.map(acct => (
-                  <div
-                    key={acct.id}
-                    className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-muted/20 border border-border/30 text-xs mb-1"
-                  >
+                  <div key={acct.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-muted/20 border border-border/30 text-xs mb-1">
                     {editingAcctId === acct.id ? (
                       <>
                         <Input
@@ -369,14 +447,14 @@ export default function SettingsPage() {
                           {acct.type === 'cash' ? '💵 cash' : '🏦 bank'}
                         </span>
                         <button
-                          className="text-muted-foreground hover:text-primary shrink-0"
                           onClick={() => { setEditingAcctId(acct.id); setEditAcctFields({ name: acct.name, type: acct.type }); }}
+                          className="text-muted-foreground hover:text-primary shrink-0"
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
                         <button
-                          className="text-muted-foreground hover:text-destructive shrink-0"
                           onClick={() => setDeleteAcctTarget(acct)}
+                          className="text-muted-foreground hover:text-destructive shrink-0"
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
@@ -388,41 +466,62 @@ export default function SettingsPage() {
             );
           })}
 
-          {/* Add new account */}
+          {/* Accounts for persons not yet listed above */}
+          {accounts.filter(a => !persons.includes(a.person)).length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 mt-2">Other</p>
+              {accounts.filter(a => !persons.includes(a.person)).map(acct => (
+                <div key={acct.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-muted/20 border border-border/30 text-xs mb-1">
+                  <span className="flex-1 font-medium truncate">{acct.name}</span>
+                  <span className="text-[10px] text-muted-foreground">{acct.person}</span>
+                  <button onClick={() => setDeleteAcctTarget(acct)} className="text-muted-foreground hover:text-destructive shrink-0">
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
             <p className="text-xs font-semibold text-foreground">Add Account</p>
-            <div className="grid grid-cols-2 gap-2">
-              <Select value={newAcctPerson} onValueChange={v => setNewAcctPerson(v as Person)}>
-                <SelectTrigger className="text-sm"><SelectValue placeholder="Person" /></SelectTrigger>
-                <SelectContent>
-                  {PERSONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <Select value={newAcctType} onValueChange={v => setNewAcctType(v as 'cash' | 'bank')}>
-                <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">💵 Cash</SelectItem>
-                  <SelectItem value="bank">🏦 Bank</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Input
-              placeholder="Account name (e.g. Ajai SBI, Appa Cash)"
-              value={newAcctName}
-              onChange={e => setNewAcctName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addAccount()}
-              className="text-sm"
-            />
-            <Button onClick={addAccount} className="w-full" size="sm">
-              <Plus className="h-3.5 w-3.5 mr-1" /> Add Account
-            </Button>
+            {persons.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Add family members first.</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select value={newAcctPerson} onValueChange={setNewAcctPerson}>
+                    <SelectTrigger className="text-sm"><SelectValue placeholder="Person" /></SelectTrigger>
+                    <SelectContent>
+                      {persons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={newAcctType} onValueChange={v => setNewAcctType(v as 'cash' | 'bank')}>
+                    <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">💵 Cash</SelectItem>
+                      <SelectItem value="bank">🏦 Bank</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Input
+                  placeholder="Account name (e.g. Ajai SBI, Appa Cash)"
+                  value={newAcctName}
+                  onChange={e => setNewAcctName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addAccount()}
+                  className="text-sm"
+                />
+                <Button onClick={addAccount} className="w-full" size="sm">
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Account
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </Section>
 
-      {/* ── SECTION 2: OPENING BALANCES ────────────────────────────────── */}
+      {/* ── SECTION 2: OPENING BALANCES ───────────────────────────────────── */}
       <Section
-        title="Account Opening Balances"
+        title="Opening Balances"
         icon={<IndianRupee className="h-4 w-4 text-primary" />}
       >
         <div className="space-y-2 mt-2">
@@ -432,15 +531,15 @@ export default function SettingsPage() {
             </p>
           ) : (
             <>
-              {PERSONS.map(person => {
-                const personAccounts = accounts.filter(a => a.person === person);
-                if (!personAccounts.length) return null;
+              {persons.map(person => {
+                const pa = accounts.filter(a => a.person === person);
+                if (!pa.length) return null;
                 return (
                   <div key={person}>
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 mt-1">
                       {person}
                     </p>
-                    {personAccounts.map(acc => (
+                    {pa.map(acc => (
                       <div key={acc.id} className="flex items-center gap-3 mb-1.5">
                         <Label className="w-32 text-xs truncate shrink-0">{acc.name}</Label>
                         <Input
@@ -463,15 +562,15 @@ export default function SettingsPage() {
         </div>
       </Section>
 
-      {/* ── SECTION 3: INCOME SOURCES CRUD ─────────────────────────────── */}
+      {/* ── SECTION 3: INCOME SOURCES CRUD ────────────────────────────────── */}
       <Section
         title={`Income Sources (${incomeSources.length})`}
         icon={<TrendingUp className="h-4 w-4 text-primary" />}
       >
-        <div className="space-y-1.5 mt-2">
+        <div className="space-y-1 mt-2">
           {incomeSources.length === 0 && (
             <p className="text-xs text-muted-foreground text-center py-3">
-              No income sources yet. Add your first one below.
+              No income sources yet. Add below.
             </p>
           )}
           {incomeSources.map(s => (
@@ -489,11 +588,10 @@ export default function SettingsPage() {
               amountLabel="₹ Expected"
             />
           ))}
-
           <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
             <p className="text-xs font-semibold text-foreground">Add Income Source</p>
             <Input
-              placeholder="Source name (e.g. Appa Salary, Vaati)"
+              placeholder="Name (e.g. Appa Salary, Vaati)"
               value={newIncomeName}
               onChange={e => setNewIncomeName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && addIncomeSource()}
@@ -522,15 +620,15 @@ export default function SettingsPage() {
         </div>
       </Section>
 
-      {/* ── SECTION 4: EXPENSE SOURCES CRUD ────────────────────────────── */}
+      {/* ── SECTION 4: EXPENSE SOURCES CRUD ───────────────────────────────── */}
       <Section
         title={`Expense Sources (${expenseSources.length})`}
         icon={<TrendingDown className="h-4 w-4 text-primary" />}
       >
-        <div className="space-y-1.5 mt-2">
+        <div className="space-y-1 mt-2">
           {expenseSources.length === 0 && (
             <p className="text-xs text-muted-foreground text-center py-3">
-              No expense sources yet. Add your first one below.
+              No expense sources yet. Add below.
             </p>
           )}
           {expenseSources.map(s => (
@@ -548,11 +646,10 @@ export default function SettingsPage() {
               amountLabel="₹ Budget"
             />
           ))}
-
           <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
             <p className="text-xs font-semibold text-foreground">Add Expense Source</p>
             <Input
-              placeholder="Expense name (e.g. Rent, Milk, Petrol)"
+              placeholder="Name (e.g. Rent, Milk, Petrol)"
               value={newExpenseName}
               onChange={e => setNewExpenseName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && addExpenseSource()}
@@ -581,14 +678,33 @@ export default function SettingsPage() {
         </div>
       </Section>
 
-      {/* ── DELETE CONFIRMATIONS ─────────────────────────────────────────── */}
+      {/* ── DELETE DIALOGS ───────────────────────────────────────────────────── */}
+
+      <AlertDialog open={!!deletePersonTarget} onOpenChange={o => { if (!o) setDeletePersonTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {deletePersonTarget}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will also remove all accounts belonging to <strong>{deletePersonTarget}</strong>.
+              Existing transactions are not affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deletePersonTarget && deletePerson(deletePersonTarget)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >Remove</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!deleteAcctTarget} onOpenChange={o => { if (!o) setDeleteAcctTarget(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Account?</AlertDialogTitle>
             <AlertDialogDescription>
-              Remove <strong>{deleteAcctTarget?.name}</strong>? This won't delete transactions that used it.
+              Remove <strong>{deleteAcctTarget?.name}</strong>? Existing transactions are not affected.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -596,9 +712,7 @@ export default function SettingsPage() {
             <AlertDialogAction
               onClick={() => deleteAcctTarget && deleteAccount(deleteAcctTarget)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
+            >Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -614,11 +728,9 @@ export default function SettingsPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deleteIncomeTarget && deleteIncome(deleteIncomeTarget)}
+              onClick={() => { if (deleteIncomeTarget) { setIncomeSources(incomeSources.filter(x => x.id !== deleteIncomeTarget.id)); setDeleteIncomeTarget(null); toast.success('Deleted'); } }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
+            >Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -634,11 +746,9 @@ export default function SettingsPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deleteExpenseTarget && deleteExpense(deleteExpenseTarget)}
+              onClick={() => { if (deleteExpenseTarget) { setExpenseSources(expenseSources.filter(x => x.id !== deleteExpenseTarget.id)); setDeleteExpenseTarget(null); toast.success('Deleted'); } }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
+            >Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

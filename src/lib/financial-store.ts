@@ -501,9 +501,18 @@ export function getCategorySpending(txns: Transaction[], year: number, month: nu
   return result;
 }
 
-export function getOverspendCategories(txns: Transaction[], budgets: Budget[], year: number, month: number) {
+export function getOverspendCategories(
+  txns: Transaction[],
+  budgets: Budget[],
+  year: number,
+  month: number,
+  homeExpenseCategories?: string[],
+) {
   const spending = getCategorySpending(txns, year, month);
-  return EXPENSE_CATEGORIES.map(cat => {
+  const cats = homeExpenseCategories && homeExpenseCategories.length > 0
+    ? homeExpenseCategories
+    : EXPENSE_CATEGORIES; // fallback only if nothing configured
+  return cats.map(cat => {
     const budget    = getBudgetForCategory(budgets, cat, year, month);
     const actual    = spending[cat] || 0;
     const remaining = rc(budget - actual);
