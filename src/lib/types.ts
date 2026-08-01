@@ -1,7 +1,21 @@
 export type TransactionType = 'income' | 'expense' | 'transfer';
 export type PaymentMode = 'cash' | 'bank';
 export type Person = string;           // Dynamic — configured in Settings
-export type HomeOrDebt = 'home' | 'debt';
+export type HomeOrDebt = string;  // Dynamic — 'home', 'debt', 'savings', or any custom group
+
+/** A configurable transaction group (replaces hardcoded home/debt) */
+export interface TransactionGroup {
+  id: string;      // e.g. 'home', 'debt', 'savings'
+  label: string;   // Display name: 'Home', 'Debt', 'Savings'
+  emoji: string;   // e.g. '🏠', '💳', '💰'
+  color: string;   // Tailwind color class e.g. 'text-green-500'
+}
+
+/** Default groups — used as fallback when none configured in settings */
+export const DEFAULT_TRANSACTION_GROUPS: TransactionGroup[] = [
+  { id: 'home',    label: 'Home',    emoji: '🏠', color: 'text-green-500'  },
+  { id: 'debt',    label: 'Debt',    emoji: '💳', color: 'text-orange-500' },
+];
 
 export const PERSONS: Person[] = [];   // Empty default — use state.customPersons
 
@@ -68,14 +82,14 @@ export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number];
 export interface IncomeSource {
   id: string;
   name: string;
-  group: 'home' | 'debt';
+  group: string;   // matches TransactionGroup.id — e.g. 'home', 'debt', 'savings'
   defaultExpected: number;
 }
 
 export interface ExpenseSource {
   id: string;
   name: string;
-  group: 'home' | 'debt';
+  group: string;   // matches TransactionGroup.id
   defaultBudget: number;
 }
 
@@ -141,6 +155,8 @@ export interface FinancialState {
   customAccounts?: Account[];
   // ✅ Dynamic persons (CRUD) — replaces hardcoded PERSONS
   customPersons?: string[];
+  // ✅ Dynamic transaction groups (CRUD) — replaces hardcoded home/debt
+  transactionGroups?: TransactionGroup[];
 }
 
 export const MONTH_NAMES = [

@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
-import type { Account, IncomeSource, ExpenseSource } from '@/lib/types';
+import type { Account, IncomeSource, ExpenseSource, TransactionGroup } from '@/lib/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -63,14 +63,11 @@ function Section({
   );
 }
 
-function GroupBadge({ group }: { group: 'home' | 'debt' }) {
+function GroupBadge({ group, transactionGroups }: { group: string; transactionGroups: { id: string; label: string; emoji: string }[] }) {
+  const g = transactionGroups.find(x => x.id === group);
   return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 font-medium ${
-      group === 'home'
-        ? 'bg-green-500/15 text-green-600 dark:text-green-400'
-        : 'bg-orange-500/15 text-orange-600 dark:text-orange-400'
-    }`}>
-      {group === 'home' ? '🏠' : '💳'} {group}
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 font-medium bg-primary/10 text-primary">
+      {g ? `${g.emoji} ${g.label}` : group}
     </span>
   );
 }
@@ -81,12 +78,13 @@ type AnySource = IncomeSource | ExpenseSource;
 
 function SourceRow<T extends AnySource>({
   source, isEditing, editFields, setEditFields,
-  onEdit, onSave, onCancel, onDelete, amountKey, amountLabel,
+  onEdit, onSave, onCancel, onDelete, amountKey, amountLabel, transactionGroups,
 }: {
   source: T; isEditing: boolean;
   editFields: Partial<T>; setEditFields: (f: Partial<T>) => void;
   onEdit: () => void; onSave: () => void; onCancel: () => void;
   onDelete: () => void; amountKey: string; amountLabel: string;
+  transactionGroups: { id: string; label: string; emoji: string }[];
 }) {
   const amt = (source as any)[amountKey] as number;
   const editAmt = (editFields as any)[amountKey];
@@ -102,12 +100,11 @@ function SourceRow<T extends AnySource>({
           />
           <Select
             value={(editFields.group ?? source.group) as string}
-            onValueChange={v => setEditFields({ ...editFields, group: v as 'home' | 'debt' } as Partial<T>)}
+            onValueChange={v => setEditFields({ ...editFields, group: v } as Partial<T>)}
           >
-            <SelectTrigger className="w-20 h-6 text-[10px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-24 h-6 text-[10px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="home">🏠 Home</SelectItem>
-              <SelectItem value="debt">💳 Debt</SelectItem>
+              {transactionGroups.map(g => <SelectItem key={g.id} value={g.id}>{g.emoji} {g.label}</SelectItem>)}
             </SelectContent>
           </Select>
           <Input
@@ -123,7 +120,7 @@ function SourceRow<T extends AnySource>({
       ) : (
         <>
           <span className="flex-1 font-medium truncate">{source.name}</span>
-          <GroupBadge group={source.group} />
+          <GroupBadge group={source.group} transactionGroups={transactionGroups} />
           {amt > 0 && (
             <span className="text-[10px] text-muted-foreground shrink-0 font-mono">
               ₹{amt.toLocaleString('en-IN')}
@@ -151,10 +148,14 @@ export default function SettingsPage() {
     setExpenseSources,
     setCustomAccounts,
     setCustomPersons,
+    setTransactionGroups,
   } = useFinance();
 
   const persons: string[]  = state.customPersons  ?? [];
   const accounts: Account[] = state.customAccounts ?? [];
+  const transactionGroups = state.transactionGroups && state.transactionGroups.length > 0
+    ? state.transactionGroups
+    : [{ id: 'home', label: 'Home', emoji: '🏠', color: 'text-green-500' }, { id: 'debt', label: 'Debt', emoji: '💳', color: 'text-orange-500' }];
 
   // ══════════════════════════════════════════════════════════════════════════
   // SECTION 0 — PERSONS CRUD
@@ -251,12 +252,46 @@ export default function SettingsPage() {
   };
 
   // ══════════════════════════════════════════════════════════════════════════
+  // SECTION 2.5 — TRANSACTION GROUPS CRUD
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const [newGroupId, setNewGroupId]       = useState('');
+  const [newGroupLabel, setNewGroupLabel] = useState('');
+  const [newGroupEmoji, setNewGroupEmoji] = useState('📁');
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editGroupFields, setEditGroupFields] = useState<Partial<TransactionGroup>>({});
+  const [deleteGroupTarget, setDeleteGroupTarget] = useState<TransactionGroup | null>(null);
+
+  const addGroup = () => {
+    const id = newGroupId.trim().toLowerCase().replace(/\s+/g, '-');
+    if (!id || !newGroupLabel.trim()) { toast.error('Enter ID and label'); return; }
+    if (transactionGroups.some(g => g.id === id)) { toast.error('Group ID already exists'); return; }
+    setTransactionGroups([...transactionGroups, {
+      id, label: newGroupLabel.trim(), emoji: newGroupEmoji || '📁', color: 'text-primary',
+    }]);
+    setNewGroupId(''); setNewGroupLabel(''); setNewGroupEmoji('📁');
+    toast.success(`${newGroupLabel} group added`);
+  };
+
+  const saveGroupEdit = (id: string) => {
+    setTransactionGroups(transactionGroups.map(g => g.id === id ? { ...g, ...editGroupFields } : g));
+    setEditingGroupId(null);
+    toast.success('Group updated');
+  };
+
+  const deleteGroup = (g: TransactionGroup) => {
+    setTransactionGroups(transactionGroups.filter(x => x.id !== g.id));
+    setDeleteGroupTarget(null);
+    toast.success(`${g.label} group removed`);
+  };
+
+  // ══════════════════════════════════════════════════════════════════════════
   // SECTION 3 — INCOME SOURCES CRUD
   // ══════════════════════════════════════════════════════════════════════════
 
   const incomeSources: IncomeSource[] = state.incomeSources ?? [];
   const [newIncomeName, setNewIncomeName]         = useState('');
-  const [newIncomeGroup, setNewIncomeGroup]       = useState<'home' | 'debt'>('home');
+  const [newIncomeGroup, setNewIncomeGroup]       = useState('home');
   const [newIncomeExpected, setNewIncomeExpected] = useState('');
   const [editingIncomeId, setEditingIncomeId]     = useState<string | null>(null);
   const [editIncomeFields, setEditIncomeFields]   = useState<Partial<IncomeSource>>({});
@@ -287,7 +322,7 @@ export default function SettingsPage() {
 
   const expenseSources: ExpenseSource[] = state.expenseSources ?? [];
   const [newExpenseName, setNewExpenseName]       = useState('');
-  const [newExpenseGroup, setNewExpenseGroup]     = useState<'home' | 'debt'>('home');
+  const [newExpenseGroup, setNewExpenseGroup]     = useState('home');
   const [newExpenseBudget, setNewExpenseBudget]   = useState('');
   const [editingExpenseId, setEditingExpenseId]   = useState<string | null>(null);
   const [editExpenseFields, setEditExpenseFields] = useState<Partial<ExpenseSource>>({});
@@ -562,6 +597,55 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      {/* ── SECTION 2.5: TRANSACTION GROUPS CRUD ─────────────────────── */}
+      <Section
+        title={`Transaction Groups (${transactionGroups.length})`}
+        icon={<span className="text-sm">📁</span>}
+      >
+        <div className="space-y-1 mt-2">
+          <p className="text-[11px] text-muted-foreground mb-2">
+            Groups classify transactions (Home, Debt, Savings…). Income & Expense pages show one section per group.
+          </p>
+          {transactionGroups.map(g => (
+            <div key={g.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-muted/20 border border-border/30 text-xs mb-1">
+              {editingGroupId === g.id ? (
+                <>
+                  <Input className="w-16 h-6 text-xs" value={editGroupFields.emoji ?? g.emoji}
+                    onChange={e => setEditGroupFields(f => ({ ...f, emoji: e.target.value }))} placeholder="🏠" />
+                  <Input className="flex-1 h-6 text-xs" value={editGroupFields.label ?? g.label}
+                    onChange={e => setEditGroupFields(f => ({ ...f, label: e.target.value }))} autoFocus />
+                  <button onClick={() => saveGroupEdit(g.id)} className="text-green-500 shrink-0"><Check className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setEditingGroupId(null)} className="text-muted-foreground shrink-0"><X className="h-3.5 w-3.5" /></button>
+                </>
+              ) : (
+                <>
+                  <span className="text-base w-6 text-center">{g.emoji}</span>
+                  <span className="flex-1 font-medium">{g.label}</span>
+                  <span className="text-[10px] text-muted-foreground font-mono">{g.id}</span>
+                  <button onClick={() => { setEditingGroupId(g.id); setEditGroupFields({ label: g.label, emoji: g.emoji }); }}
+                    className="text-muted-foreground hover:text-primary shrink-0"><Pencil className="h-3 w-3" /></button>
+                  <button onClick={() => setDeleteGroupTarget(g)} className="text-muted-foreground hover:text-destructive shrink-0">
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+
+          <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
+            <p className="text-xs font-semibold text-foreground">Add Group</p>
+            <div className="flex gap-2">
+              <Input className="w-14 text-sm" placeholder="🏦" value={newGroupEmoji} onChange={e => setNewGroupEmoji(e.target.value)} />
+              <Input className="flex-1 text-sm" placeholder="Label (e.g. Savings)" value={newGroupLabel} onChange={e => setNewGroupLabel(e.target.value)} />
+            </div>
+            <Input className="text-sm" placeholder="ID (e.g. savings — used internally)" value={newGroupId} onChange={e => setNewGroupId(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} />
+            <Button onClick={addGroup} className="w-full" size="sm">
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add Group
+            </Button>
+          </div>
+        </div>
+      </Section>
+
       {/* ── SECTION 3: INCOME SOURCES CRUD ────────────────────────────────── */}
       <Section
         title={`Income Sources (${incomeSources.length})`}
@@ -573,21 +657,29 @@ export default function SettingsPage() {
               No income sources yet. Add below.
             </p>
           )}
-          {incomeSources.map(s => (
-            <SourceRow
-              key={s.id}
-              source={s}
-              isEditing={editingIncomeId === s.id}
-              editFields={editIncomeFields as Partial<IncomeSource>}
-              setEditFields={f => setEditIncomeFields(f as Partial<IncomeSource>)}
-              onEdit={() => { setEditingIncomeId(s.id); setEditIncomeFields({ name: s.name, group: s.group, defaultExpected: s.defaultExpected }); }}
-              onSave={() => saveIncomeEdit(s.id)}
-              onCancel={() => setEditingIncomeId(null)}
-              onDelete={() => setDeleteIncomeTarget(s)}
-              amountKey="defaultExpected"
-              amountLabel="₹ Expected"
-            />
-          ))}
+         {incomeSources.map(s => (
+  <SourceRow
+    key={s.id}
+    source={s}
+    isEditing={editingIncomeId === s.id}
+    editFields={editIncomeFields as Partial<IncomeSource>}
+    setEditFields={f => setEditIncomeFields(f as Partial<IncomeSource>)}
+    onEdit={() => {
+      setEditingIncomeId(s.id);
+      setEditIncomeFields({
+        name: s.name,
+        group: s.group,
+        defaultExpected: s.defaultExpected,
+      });
+    }}
+    onSave={() => saveIncomeEdit(s.id)}
+    onCancel={() => setEditingIncomeId(null)}
+    onDelete={() => setDeleteIncomeTarget(s)}
+    amountKey="defaultExpected"
+    amountLabel="₹ Expected"
+    transactionGroups={transactionGroups}
+  />
+))}
           <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
             <p className="text-xs font-semibold text-foreground">Add Income Source</p>
             <Input
@@ -598,11 +690,10 @@ export default function SettingsPage() {
               className="text-sm"
             />
             <div className="grid grid-cols-2 gap-2">
-              <Select value={newIncomeGroup} onValueChange={v => setNewIncomeGroup(v as 'home' | 'debt')}>
+              <Select value={newIncomeGroup} onValueChange={v => setNewIncomeGroup(v)}>
                 <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="home">🏠 Home</SelectItem>
-                  <SelectItem value="debt">💳 Debt</SelectItem>
+                  {transactionGroups.map(g => <SelectItem key={g.id} value={g.id}>{g.emoji} {g.label}</SelectItem>)}
                 </SelectContent>
               </Select>
               <Input
@@ -631,21 +722,29 @@ export default function SettingsPage() {
               No expense sources yet. Add below.
             </p>
           )}
-          {expenseSources.map(s => (
-            <SourceRow
-              key={s.id}
-              source={s}
-              isEditing={editingExpenseId === s.id}
-              editFields={editExpenseFields as Partial<ExpenseSource>}
-              setEditFields={f => setEditExpenseFields(f as Partial<ExpenseSource>)}
-              onEdit={() => { setEditingExpenseId(s.id); setEditExpenseFields({ name: s.name, group: s.group, defaultBudget: s.defaultBudget }); }}
-              onSave={() => saveExpenseEdit(s.id)}
-              onCancel={() => setEditingExpenseId(null)}
-              onDelete={() => setDeleteExpenseTarget(s)}
-              amountKey="defaultBudget"
-              amountLabel="₹ Budget"
-            />
-          ))}
+         {expenseSources.map(s => (
+  <SourceRow
+    key={s.id}
+    source={s}
+    isEditing={editingExpenseId === s.id}
+    editFields={editExpenseFields as Partial<ExpenseSource>}
+    setEditFields={f => setEditExpenseFields(f as Partial<ExpenseSource>)}
+    onEdit={() => {
+      setEditingExpenseId(s.id);
+      setEditExpenseFields({
+        name: s.name,
+        group: s.group,
+        defaultBudget: s.defaultBudget,
+      });
+    }}
+    onSave={() => saveExpenseEdit(s.id)}
+    onCancel={() => setEditingExpenseId(null)}
+    onDelete={() => setDeleteExpenseTarget(s)}
+    amountKey="defaultBudget"
+    amountLabel="₹ Budget"
+    transactionGroups={transactionGroups}
+  />
+))}
           <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
             <p className="text-xs font-semibold text-foreground">Add Expense Source</p>
             <Input
@@ -656,11 +755,10 @@ export default function SettingsPage() {
               className="text-sm"
             />
             <div className="grid grid-cols-2 gap-2">
-              <Select value={newExpenseGroup} onValueChange={v => setNewExpenseGroup(v as 'home' | 'debt')}>
+              <Select value={newExpenseGroup} onValueChange={v => setNewExpenseGroup(v)}>
                 <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="home">🏠 Home</SelectItem>
-                  <SelectItem value="debt">💳 Debt</SelectItem>
+                  {transactionGroups.map(g => <SelectItem key={g.id} value={g.id}>{g.emoji} {g.label}</SelectItem>)}
                 </SelectContent>
               </Select>
               <Input
@@ -679,6 +777,22 @@ export default function SettingsPage() {
       </Section>
 
       {/* ── DELETE DIALOGS ───────────────────────────────────────────────────── */}
+
+      <AlertDialog open={!!deleteGroupTarget} onOpenChange={o => { if (!o) setDeleteGroupTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Group?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove <strong>{deleteGroupTarget?.emoji} {deleteGroupTarget?.label}</strong>? Income/expense sources in this group will still exist but won't appear in any section until reassigned.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleteGroupTarget && deleteGroup(deleteGroupTarget)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Remove</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!deletePersonTarget} onOpenChange={o => { if (!o) setDeletePersonTarget(null); }}>
         <AlertDialogContent>

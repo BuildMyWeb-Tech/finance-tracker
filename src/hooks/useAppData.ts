@@ -1,60 +1,74 @@
 /**
  * useAppData.ts
- * Single source of truth for dynamic persons, accounts, and categories.
- * ALL components should use this instead of hardcoded PERSONS / ACCOUNTS / *_CATEGORIES.
+ * Single source of truth for all dynamic app data from Settings.
+ * persons, accounts, transactionGroups, income/expense categories — all from DB.
  */
 
 import { useMemo } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
-import type { Account } from '@/lib/types';
+import type { Account, TransactionGroup } from '@/lib/types';
+import { DEFAULT_TRANSACTION_GROUPS } from '@/lib/types';
 
 export function useAppData() {
   const { state } = useFinance();
 
-  // ── Persons (fully dynamic from Settings) ───────────────────────────────
+  // ── Persons ──────────────────────────────────────────────────────────────
   const persons: string[] = useMemo(
-    () => state.customPersons && state.customPersons.length > 0
-      ? state.customPersons
-      : [],
+    () => state.customPersons ?? [],
     [state.customPersons],
   );
 
-  // ── Accounts (fully dynamic from Settings) ──────────────────────────────
+  // ── Accounts ─────────────────────────────────────────────────────────────
   const accounts: Account[] = useMemo(
     () => state.customAccounts ?? [],
     [state.customAccounts],
   );
 
-  // ── Category lists (fully dynamic from Settings) ─────────────────────────
-  const homeIncomeCategories = useMemo(
-    () => (state.incomeSources ?? []).filter(s => s.group === 'home').map(s => s.name),
-    [state.incomeSources],
-  );
-  const debtIncomeCategories = useMemo(
-    () => (state.incomeSources ?? []).filter(s => s.group === 'debt').map(s => s.name),
-    [state.incomeSources],
-  );
-  const homeExpenseCategories = useMemo(
-    () => (state.expenseSources ?? []).filter(s => s.group === 'home').map(s => s.name),
-    [state.expenseSources],
-  );
-  const debtExpenseCategories = useMemo(
-    () => (state.expenseSources ?? []).filter(s => s.group === 'debt').map(s => s.name),
-    [state.expenseSources],
+  // ── Transaction Groups ────────────────────────────────────────────────────
+  // Falls back to home+debt defaults if none configured
+  const transactionGroups: TransactionGroup[] = useMemo(
+    () => state.transactionGroups && state.transactionGroups.length > 0
+      ? state.transactionGroups
+      : DEFAULT_TRANSACTION_GROUPS,
+    [state.transactionGroups],
   );
 
-  // All categories combined (for search filters)
-  const allCategories = useMemo(
-    () => Array.from(new Set([
-      ...homeIncomeCategories,
-      ...debtIncomeCategories,
-      ...homeExpenseCategories,
-      ...debtExpenseCategories,
-    ])).sort(),
-    [homeIncomeCategories, debtIncomeCategories, homeExpenseCategories, debtExpenseCategories],
-  );
+  const groupIds = useMemo(() => transactionGroups.map(g => g.id), [transactionGroups]);
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
+  const getGroup = (id: string): TransactionGroup =>
+    transactionGroups.find(g => g.id === id) ?? { id, label: id, emoji: '📁', color: 'text-muted-foreground' };
+
+  // ── Category lists — one per group per type ───────────────────────────────
+  // Returns { [groupId]: string[] } for income
+  const incomeCategoriesByGroup = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const g of transactionGroups) {
+      map[g.id] = (state.incomeSources ?? [])
+        .filter(s => s.group === g.id)
+        .map(s => s.name);
+    }
+    return map;
+  }, [state.incomeSources, transactionGroups]);
+
+  // Returns { [groupId]: string[] } for expenses
+  const expenseCategoriesByGroup = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const g of transactionGroups) {
+      map[g.id] = (state.expenseSources ?? [])
+        .filter(s => s.group === g.id)
+        .map(s => s.name);
+    }
+    return map;
+  }, [state.expenseSources, transactionGroups]);
+
+  // Flat all-categories list for search/filter
+  const allCategories = useMemo(() => {
+    const income = Object.values(incomeCategoriesByGroup).flat();
+    const expense = Object.values(expenseCategoriesByGroup).flat();
+    return Array.from(new Set([...income, ...expense])).sort();
+  }, [incomeCategoriesByGroup, expenseCategoriesByGroup]);
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   const getAccountsForPerson = (person: string) =>
     accounts.filter(a => a.person === person);
@@ -64,21 +78,21 @@ export function useAppData() {
 
   const getCategoriesFor = (
     type: 'income' | 'expense' | 'transfer',
-    homeOrDebt: 'home' | 'debt',
+    groupId: string,
   ): string[] => {
     if (type === 'transfer') return [];
-    if (type === 'income')
-      return homeOrDebt === 'home' ? homeIncomeCategories : debtIncomeCategories;
-    return homeOrDebt === 'home' ? homeExpenseCategories : debtExpenseCategories;
+    const map = type === 'income' ? incomeCategoriesByGroup : expenseCategoriesByGroup;
+    return map[groupId] ?? [];
   };
 
   return {
     persons,
     accounts,
-    homeIncomeCategories,
-    debtIncomeCategories,
-    homeExpenseCategories,
-    debtExpenseCategories,
+    transactionGroups,
+    groupIds,
+    getGroup,
+    incomeCategoriesByGroup,
+    expenseCategoriesByGroup,
     allCategories,
     getAccountsForPerson,
     getAccountName,

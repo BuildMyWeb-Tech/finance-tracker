@@ -8,6 +8,19 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { loadRegisteredUsers, registerUser as dbRegisterUser } from '@/lib/supabase-store';
 
+const LOCAL_USERS_KEY = 'finance_local_users';
+
+function loadLocalUsers(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(LOCAL_USERS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function saveLocalUsers(users: Record<string, string>) {
+  localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
+}
+
 const TOKEN_KEY = 'finance_auth_token';
 
 // ─── Fallback credentials (used when Supabase unreachable) ───────────────────
@@ -62,19 +75,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [dbUsers, setDbUsers] = useState<Record<string, string>>(FALLBACK_USERS);
+  const [dbUsers, setDbUsers] = useState<Record<string, string>>({});
 
-  // Load registered users from DB on mount
+  // Merge: hardcoded fallbacks + localStorage + DB
+  const getAllUsers = (fresh?: Record<string, string>) => ({
+    ...FALLBACK_USERS,
+    ...loadLocalUsers(),
+    ...(fresh ?? dbUsers),
+  });
+
+  // Load DB users on mount, then auto-login from token
   useEffect(() => {
     loadRegisteredUsers()
       .then(users => {
         if (Object.keys(users).length > 0) {
-          setDbUsers({ ...FALLBACK_USERS, ...users });
+          setDbUsers(users);
+          // Also persist to localStorage so offline login works
+          saveLocalUsers({ ...loadLocalUsers(), ...users });
         }
       })
-      .catch(() => {}) // fallback stays
+      .catch(() => {})
       .finally(() => {
-        // Auto-login from token
         const token = loadAuthToken();
         if (token) {
           setIsLoggedIn(true);
@@ -84,20 +105,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
-  const getAllUsers = () => ({ ...FALLBACK_USERS, ...dbUsers });
-
   const login = async (userId: string, password: string): Promise<{ success: boolean; error?: string }> => {
     const uid = userId.trim().toLowerCase();
     if (!uid) return { success: false, error: 'Enter a User ID' };
 
-    // Refresh users from DB before login
+    // Refresh DB users before login attempt
+    let freshDb: Record<string, string> = {};
     try {
-      const fresh = await loadRegisteredUsers();
-      if (Object.keys(fresh).length > 0) setDbUsers({ ...FALLBACK_USERS, ...fresh });
+      freshDb = await loadRegisteredUsers();
+      if (Object.keys(freshDb).length > 0) {
+        setDbUsers(freshDb);
+        saveLocalUsers({ ...loadLocalUsers(), ...freshDb });
+      }
     } catch {}
 
-    const users = getAllUsers();
+    const users = getAllUsers(freshDb);
     const expected = users[uid];
+
     if (!expected) return { success: false, error: 'User not found. Please register first.' };
     if (expected !== password) return { success: false, error: 'Incorrect password' };
 
@@ -121,17 +145,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const users = getAllUsers();
     if (users[uid]) return { success: false, error: 'User ID already taken' };
 
-    // Save to DB
-    const result = await dbRegisterUser(uid, password);
-    if (!result.success) {
-      // Save locally as fallback
-      const updated = { ...dbUsers, [uid]: password };
-      setDbUsers(updated);
-      localStorage.setItem('finance_local_users', JSON.stringify(updated));
+    // Always save to localStorage FIRST (reliable)
+    const updatedLocal = { ...loadLocalUsers(), [uid]: password };
+    saveLocalUsers(updatedLocal);
+    setDbUsers(prev => ({ ...prev, [uid]: password }));
+
+    // Then try to save to DB (best effort)
+    try {
+      const result = await dbRegisterUser(uid, password);
+      if (!result.success) {
+        console.warn('DB registration failed, localStorage used:', result.error);
+      }
+    } catch (err) {
+      console.warn('DB registration exception, localStorage used:', err);
     }
 
-    // Update local state and auto-login
-    setDbUsers(prev => ({ ...prev, [uid]: password }));
+    // Auto-login
     setIsLoggedIn(true);
     setCurrentUser(uid);
     saveAuthToken(uid, password);

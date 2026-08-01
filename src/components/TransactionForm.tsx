@@ -198,7 +198,7 @@ type FormTab = 'manual' | 'image';
 
 export default function TransactionForm({ onSuccess }: { onSuccess?: () => void }) {
   const { addTransaction } = useFinance();
-  const { persons, getCategoriesFor, getAccountsForPerson, accounts } = useAppData();
+  const { persons, getCategoriesFor, getAccountsForPerson, accounts, transactionGroups, allCategories } = useAppData();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<FormTab>('manual');
   const today = new Date().toISOString().split('T')[0];
@@ -215,10 +215,10 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
     transferTo: '' as string,
     accountId: '',
     transferToAccountId: '',
-    homeOrDebt: 'home' as HomeOrDebt,
+    homeOrDebt: transactionGroups[0]?.id ?? 'home',
   });
 
-  const categories = getCategoriesFor(form.type as 'income' | 'expense' | 'transfer', form.homeOrDebt as 'home' | 'debt');
+  const categories = getCategoriesFor(form.type as 'income' | 'expense' | 'transfer', form.homeOrDebt);
   const personAccounts = form.person ? getAccountsForPerson(form.person) : [];
   const transferToPersons = persons;
   const transferToAccounts = form.transferTo
@@ -233,11 +233,9 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
       amount: result.amount ? String(result.amount) : f.amount,
       date: result.date || f.date,
       notes: result.notes || f.notes,
-      category: result.category && homeExpenseCategories.includes(result.category)
+      category: result.category && allCategories.includes(result.category)
         ? result.category
-        : debtExpenseCategories.includes(result.category || '')
-          ? result.category || f.category
-          : f.category,
+        : f.category,
     }));
     if (result.amount) toast.success(`₹${result.amount.toLocaleString('en-IN')} detected!`);
   };
@@ -275,7 +273,7 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
     });
 
     toast.success('Transaction added');
-    setForm({ date: today, person: '', type: 'expense', category: '', amount: '', expectedAmount: '', paymentMode: 'cash', notes: '', transferTo: '', accountId: '', transferToAccountId: '', homeOrDebt: 'home' });
+    setForm({ date: today, person: '', type: 'expense', category: '', amount: '', expectedAmount: '', paymentMode: 'cash', notes: '', transferTo: '', accountId: '', transferToAccountId: '', homeOrDebt: transactionGroups[0]?.id ?? 'home' });
     setTab('manual');
     setOpen(false);
     onSuccess?.();
@@ -324,10 +322,10 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
 
           {/* Home / Debt */}
           <div className="grid grid-cols-2 gap-2">
-            {(['home', 'debt'] as HomeOrDebt[]).map(hd => (
-              <Button key={hd} variant={form.homeOrDebt === hd ? 'default' : 'outline'} size="sm"
-                onClick={() => setForm(f => ({ ...f, homeOrDebt: hd, category: '' }))}>
-                {hd === 'home' ? '🏠 Home' : '💳 Debt'}
+            {transactionGroups.map(g => (
+              <Button key={g.id} variant={form.homeOrDebt === g.id ? 'default' : 'outline'} size="sm"
+                onClick={() => setForm(f => ({ ...f, homeOrDebt: g.id, category: '' }))}>
+                {g.emoji} {g.label}
               </Button>
             ))}
           </div>

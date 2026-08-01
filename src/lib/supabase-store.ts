@@ -116,6 +116,7 @@ export async function loadFromSupabase(userId: string): Promise<FinancialState> 
       accountNames: configMap['accountNames'],
       customAccounts: configMap['customAccounts'],
       customPersons: configMap['customPersons'],
+      transactionGroups: configMap['transactionGroups'],
     };
 
     saveLocalState(state, userId);
@@ -197,45 +198,60 @@ export async function saveConfig(key: string, value: any, userId: string): Promi
   if (error) console.error(`Error saving config [${key}]:`, error);
 }
 
-// ─── User registration (stored in app_config under key "users") ───────────────
+// ─── User registration ────────────────────────────────────────────────────────
+// Stored in app_config with key='registered_users', user_id='__global__'
+// Using '__global__' (not NULL) because NULL breaks upsert conflict resolution.
+
+const GLOBAL_USER_ID = '__global__';
 
 export async function registerUser(
   userId: string,
   password: string,
 ): Promise<{ success: boolean; error?: string }> {
-  // Store under global key (no user_id scope — it's the auth table)
-  const { data: existing } = await supabase
-    .from('app_config')
-    .select('value')
-    .eq('key', 'registered_users')
-    .is('user_id', null)
-    .maybeSingle();
+  try {
+    // Load existing users
+    const { data: existing } = await supabase
+      .from('app_config')
+      .select('value')
+      .eq('key', 'registered_users')
+      .eq('user_id', GLOBAL_USER_ID)
+      .maybeSingle();
 
-  const users: Record<string, string> = existing?.value || {};
+    const users: Record<string, string> = (existing?.value as Record<string, string>) || {};
 
-  if (users[userId.toLowerCase()]) {
-    return { success: false, error: 'User ID already taken' };
+    if (users[userId.toLowerCase()]) {
+      return { success: false, error: 'User ID already taken' };
+    }
+
+    users[userId.toLowerCase()] = password;
+
+    const { error } = await supabase.from('app_config').upsert(
+      { key: 'registered_users', value: users, user_id: GLOBAL_USER_ID, updated_at: new Date().toISOString() },
+      { onConflict: 'key,user_id' },
+    );
+
+    if (error) {
+      console.error('registerUser DB error:', error);
+      return { success: false, error: 'Registration failed — DB error: ' + error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Registration failed' };
   }
-
-  users[userId.toLowerCase()] = password;
-
-  const { error } = await supabase.from('app_config').upsert(
-    { key: 'registered_users', value: users, user_id: null, updated_at: new Date().toISOString() },
-    { onConflict: 'key' }
-  );
-
-  if (error) return { success: false, error: 'Registration failed — DB error' };
-  return { success: true };
 }
 
 export async function loadRegisteredUsers(): Promise<Record<string, string>> {
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('app_config')
       .select('value')
       .eq('key', 'registered_users')
-      .is('user_id', null)
+      .eq('user_id', GLOBAL_USER_ID)
       .maybeSingle();
+    if (error) {
+      console.warn('loadRegisteredUsers error:', error.message);
+      return {};
+    }
     return (data?.value as Record<string, string>) || {};
   } catch {
     return {};

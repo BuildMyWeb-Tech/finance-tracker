@@ -8,6 +8,7 @@
 
 import { useState, useMemo } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
+import { useAppData } from '@/hooks/useAppData';
 import { getMonthTransactions } from '@/lib/financial-store';
 import type { Transaction } from '@/lib/types';
 import MonthSelector from '@/components/MonthSelector';
@@ -50,11 +51,12 @@ function IncomeTxnRow({ t, accounts }: { t: Transaction; accounts: { id: string;
 
 // ── Income row with expand ───────────────────────────────────────────────────
 function IncomeRow({
-  category, expected, actual, onEditExpected, transactions,
+  category, expected, actual, onEditExpected, transactions, accounts,
 }: {
   category: string; expected: number; actual: number;
   onEditExpected: (cat: string, val: number) => void;
   transactions: Transaction[];
+  accounts: { id: string; name: string }[];
 }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(String(expected));
@@ -158,12 +160,8 @@ export default function IncomePage() {
     [state.transactions, selectedYear, selectedMonth],
   );
 
+  const { transactionGroups, incomeCategoriesByGroup } = useAppData();
   const customIncome = state.incomeSources || [];
-  const customHome = customIncome.filter(s => s.group === 'home');
-  const customDebt = customIncome.filter(s => s.group === 'debt');
-  // Fully dynamic — only show categories from Settings
-  const homeCategories = customHome.map(s => s.name);
-  const debtCategories = customDebt.map(s => s.name);
   const accounts = state.customAccounts || [];
 
   const defaultExpected = useMemo(() => {
@@ -177,20 +175,14 @@ export default function IncomePage() {
   const handleEditExpected = (cat: string, val: number) =>
     setExpectedOverrides(m => ({ ...m, [cat]: val }));
 
-  // Actuals from range transactions
-  const homeActuals = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const t of rangeTxns)
-      if (t.type === 'income' && t.homeOrDebt === 'home')
-        map[t.category] = (map[t.category] || 0) + t.amount;
-    return map;
-  }, [rangeTxns]);
-
-  const debtActuals = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const t of rangeTxns)
-      if (t.type === 'income' && t.homeOrDebt === 'debt')
-        map[t.category] = (map[t.category] || 0) + t.amount;
+  // Actuals per group from range transactions
+  const actualsByGroup = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {};
+    for (const t of rangeTxns) {
+      if (t.type !== 'income') continue;
+      if (!map[t.homeOrDebt]) map[t.homeOrDebt] = {};
+      map[t.homeOrDebt][t.category] = (map[t.homeOrDebt][t.category] || 0) + t.amount;
+    }
     return map;
   }, [rangeTxns]);
 
@@ -202,24 +194,26 @@ export default function IncomePage() {
       if (!map[t.category]) map[t.category] = [];
       map[t.category].push(t);
     }
-    for (const cat in map) {
+    for (const cat in map)
       map[cat].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }
     return map;
   }, [rangeTxns]);
 
-  // Totals (expected always uses month)
-  const homeTotalExpected = homeCategories.reduce((s, c) => s + getExpected(c), 0);
-  const homeTotalActual   = homeCategories.reduce((s, c) => s + (homeActuals[c] || 0), 0);
-  const homeBalance       = homeTotalExpected - homeTotalActual;
+  // Per-group totals — fully dynamic
+  const groupTotals = useMemo(() =>
+    transactionGroups.map(g => {
+      const cats = incomeCategoriesByGroup[g.id] || [];
+      const totalExpected = cats.reduce((s, c) => s + getExpected(c), 0);
+      const groupActuals  = actualsByGroup[g.id] || {};
+      const totalActual   = cats.reduce((s, c) => s + (groupActuals[c] || 0), 0);
+      return { group: g, cats, totalExpected, totalActual, balance: totalExpected - totalActual };
+    }),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [transactionGroups, incomeCategoriesByGroup, actualsByGroup, expectedOverrides, defaultExpected]);
 
-  const debtTotalExpected = debtCategories.reduce((s, c) => s + getExpected(c), 0);
-  const debtTotalActual   = debtCategories.reduce((s, c) => s + (debtActuals[c] || 0), 0);
-  const debtBalance       = debtTotalExpected - debtTotalActual;
-
-  const overallExpected = homeTotalExpected + debtTotalExpected;
-  const overallActual   = homeTotalActual   + debtTotalActual;
-  const overallBalance  = overallExpected   - overallActual;
+  const overallExpected = groupTotals.reduce((s, g) => s + g.totalExpected, 0);
+  const overallActual   = groupTotals.reduce((s, g) => s + g.totalActual, 0);
+  const overallBalance  = overallExpected - overallActual;
 
   const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
@@ -291,97 +285,69 @@ export default function IncomePage() {
 
       {showAnalytics && <AnalyticsCharts timeRange={timeRange} />}
 
-      {/* ── HOME INCOME TABLE ── */}
-      <div className="glass-card rounded-xl p-4 overflow-x-auto">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="h-7 w-7 rounded-lg bg-success/15 flex items-center justify-center shrink-0">
-            <TrendingUp className="h-3.5 w-3.5 text-success" />
+      {/* ── DYNAMIC GROUP INCOME TABLES ── */}
+      {groupTotals.map(({ group: g, cats, totalExpected, totalActual, balance }) => (
+        <div key={g.id} className="glass-card rounded-xl p-4 overflow-x-auto">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="h-7 w-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 text-base">
+              {g.emoji}
+            </div>
+            <h2 className="text-sm font-semibold text-foreground">{g.label} Income</h2>
+            <span className="text-[10px] text-muted-foreground ml-auto">Tap row to expand</span>
           </div>
-          <h2 className="text-sm font-semibold text-foreground">Home Income</h2>
-          {customHome.length > 0 && (
-            <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-              +{customHome.length} custom
-            </span>
-          )}
-          <span className="text-[10px] text-muted-foreground ml-auto">Tap row to expand</span>
-        </div>
-        <div className="min-w-[380px]">
-          <TableHeader />
-          {homeCategories.map(cat => (
-            <IncomeRow
-              key={cat}
-              category={cat}
-              expected={getExpected(cat)}
-              actual={homeActuals[cat] || 0}
-              onEditExpected={handleEditExpected}
-              transactions={categoryTxnMap[cat] || []}
+          <div className="min-w-[380px]">
+            <TableHeader />
+            {cats.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-3 text-center">
+                No {g.label} income sources. Add them in Settings.
+              </p>
+            ) : (
+              cats.map(cat => (
+                <IncomeRow
+                  key={cat}
+                  category={cat}
+                  expected={getExpected(cat)}
+                  actual={(actualsByGroup[g.id]?.[cat]) || 0}
+                  onEditExpected={handleEditExpected}
+                  transactions={categoryTxnMap[cat] || []}
+                  accounts={accounts}
+                />
+              ))
+            )}
+            <SectionTotal
+              label={`Total ${g.label} Income`}
+              expected={totalExpected} actual={totalActual} balance={balance}
+              colorCls="bg-primary/10 text-primary"
             />
-          ))}
-          <SectionTotal label="Total Home Income"
-            expected={homeTotalExpected} actual={homeTotalActual} balance={homeBalance}
-            colorCls="bg-success/10 text-success" />
-        </div>
-      </div>
-
-      {/* ── DEBT INCOME TABLE ── */}
-      <div className="glass-card rounded-xl p-4 overflow-x-auto">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="h-7 w-7 rounded-lg bg-warning/15 flex items-center justify-center shrink-0">
-            <TrendingDown className="h-3.5 w-3.5 text-warning" />
           </div>
-          <h2 className="text-sm font-semibold text-foreground">Debt Income</h2>
-          {customDebt.length > 0 && (
-            <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-              +{customDebt.length} custom
-            </span>
-          )}
-          <span className="text-[10px] text-muted-foreground ml-auto">Tap row to expand</span>
         </div>
-        <div className="min-w-[380px]">
-          <TableHeader />
-          {debtCategories.map(cat => (
-            <IncomeRow
-              key={cat}
-              category={cat}
-              expected={getExpected(cat)}
-              actual={debtActuals[cat] || 0}
-              onEditExpected={handleEditExpected}
-              transactions={categoryTxnMap[cat] || []}
-            />
-          ))}
-          <SectionTotal label="Total Debt Income"
-            expected={debtTotalExpected} actual={debtTotalActual} balance={debtBalance}
-            colorCls="bg-warning/10 text-warning" />
-        </div>
-      </div>
+      ))}
 
       {/* BOTTOM SUMMARY */}
       <div className="glass-card rounded-xl p-4 border border-primary/20 space-y-4">
         <h2 className="text-sm font-semibold text-primary">Overall Income Summary</h2>
 
-        <div className="rounded-xl bg-muted/30 p-3 space-y-1.5 text-xs">
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2">🏠 Home</p>
-          <div className="flex justify-between"><span className="text-muted-foreground">Total Home Expected</span><span className="font-semibold tabular-nums">{fmt(homeTotalExpected)}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Total Home Actual</span><span className="font-semibold text-success tabular-nums">{fmt(homeTotalActual)}</span></div>
-          <div className="flex justify-between border-t border-border/40 pt-1.5 font-bold text-sm">
-            <span>Balance in Home</span>
-            <span className={cn('tabular-nums', homeBalance > 0 ? 'text-warning' : homeBalance < 0 ? 'text-success' : 'text-muted-foreground')}>
-              {homeBalance > 0 ? `Short by ${fmt(homeBalance)}` : homeBalance < 0 ? `Extra ${fmt(Math.abs(homeBalance))}` : '✓ On track'}
-            </span>
+        {groupTotals.map(({ group: g, totalExpected, totalActual, balance }) => (
+          <div key={g.id} className="rounded-xl bg-muted/30 p-3 space-y-1.5 text-xs">
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2">
+              {g.emoji} {g.label}
+            </p>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Expected</span>
+              <span className="font-semibold tabular-nums">{fmt(totalExpected)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Actual</span>
+              <span className="font-semibold text-success tabular-nums">{fmt(totalActual)}</span>
+            </div>
+            <div className="flex justify-between border-t border-border/40 pt-1.5 font-bold text-sm">
+              <span>Balance</span>
+              <span className={cn('tabular-nums', balance > 0 ? 'text-warning' : balance < 0 ? 'text-success' : 'text-muted-foreground')}>
+                {balance > 0 ? `Short by ${fmt(balance)}` : balance < 0 ? `Extra ${fmt(Math.abs(balance))}` : '✓ On track'}
+              </span>
+            </div>
           </div>
-        </div>
-
-        <div className="rounded-xl bg-muted/30 p-3 space-y-1.5 text-xs">
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2">💳 Debt</p>
-          <div className="flex justify-between"><span className="text-muted-foreground">Total Debt Expected</span><span className="font-semibold tabular-nums">{fmt(debtTotalExpected)}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Total Debt Actual</span><span className="font-semibold text-success tabular-nums">{fmt(debtTotalActual)}</span></div>
-          <div className="flex justify-between border-t border-border/40 pt-1.5 font-bold text-sm">
-            <span>Balance in Debt</span>
-            <span className={cn('tabular-nums', debtBalance > 0 ? 'text-warning' : debtBalance < 0 ? 'text-success' : 'text-muted-foreground')}>
-              {debtBalance > 0 ? `Short by ${fmt(debtBalance)}` : debtBalance < 0 ? `Extra ${fmt(Math.abs(debtBalance))}` : '✓ On track'}
-            </span>
-          </div>
-        </div>
+        ))}
 
         <div className="rounded-xl bg-primary/8 border border-primary/20 p-3 space-y-1.5 text-xs">
           <p className="text-[11px] font-bold text-primary uppercase tracking-wide mb-2">📊 Overall</p>

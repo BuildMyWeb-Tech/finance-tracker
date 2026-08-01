@@ -54,17 +54,9 @@ export default function BudgetPage() {
   const [usageExpanded, setUsageExpanded] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
 
+  const { transactionGroups, expenseCategoriesByGroup } = useAppData();
   const customExpense = state.expenseSources || [];
-  const customHome = customExpense.filter(s => s.group === 'home');
-  const customDebt = customExpense.filter(s => s.group === 'debt');
   const accounts = state.customAccounts || [];
-  const { persons, homeExpenseCategories } = useAppData();
-
-  // For budget calculations — pass dynamic home categories to override hardcoded list
-  const categories = getOverspendCategories(
-    state.transactions, state.budgets, selectedYear, selectedMonth,
-    homeExpenseCategories,
-  );
 
   // For transaction display — use time range
   const rangeTxns = useMemo(
@@ -86,80 +78,66 @@ export default function BudgetPage() {
       if (!map[t.category]) map[t.category] = [];
       map[t.category].push(t);
     }
-    for (const cat in map) {
+    for (const cat in map)
       map[cat].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }
     return map;
   }, [rangeTxns]);
 
-  // Custom home expense categories (budget from per-month)
-  const customHomeCategories = useMemo(() => {
-    return customHome.map(s => {
-      const actual = monthTxns
-        .filter(t => t.type === 'expense' && t.homeOrDebt === 'home' && t.category === s.name)
-        .reduce((sum, t) => sum + t.amount, 0);
-      const budget = s.defaultBudget;
-      const remaining = budget - actual;
-      const percent = budget > 0 ? (actual / budget) * 100 : 0;
-      return { category: s.name, budget, actual, remaining, percent, overspent: actual > budget };
-    });
-  }, [monthTxns, customHome]);
+  // Default budgets from settings
+  const defaultBudgets = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const s of customExpense) map[s.name] = s.defaultBudget;
+    return map;
+  }, [customExpense]);
 
-  const allHomeCategories = [...categories, ...customHomeCategories];
-
+  // Budget overrides (user edits inline)
+  const [budgetOverrides, setBudgetOverrides] = useState<Record<string, number>>({});
   const [editing, setEditing] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
-  const [expandedHomeCategory, setExpandedHomeCategory] = useState<string | null>(null);
-  const [expandedDebtCategory, setExpandedDebtCategory] = useState<string | null>(null);
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
-  // Debt actuals (range)
-  const debtActuals = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const t of rangeTxns) {
-      if (t.type === 'expense' && t.homeOrDebt === 'debt')
-        map[t.category] = (map[t.category] || 0) + t.amount;
-    }
-    return map;
-  }, [rangeTxns]);
-
-  const allDebtCats = customDebt.map(s => s.name);
-  const defaultDebtExpected = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const s of customDebt) map[s.name] = s.defaultBudget;
-    return map;
-  }, [customDebt]);
-
-  const [debtExpectedOverrides, setDebtExpectedOverrides] = useState<Record<string, number>>({});
-  const [editingDebt, setEditingDebt] = useState<string | null>(null);
-  const [editDebtValue, setEditDebtValue] = useState('');
-
-  const getDebtExpected = (cat: string) =>
-    cat in debtExpectedOverrides ? debtExpectedOverrides[cat] : (defaultDebtExpected[cat] ?? 0);
+  const getBudget = (cat: string) => {
+    if (cat in budgetOverrides) return budgetOverrides[cat];
+    const stored = state.budgets.find(b => b.category === cat && b.month === selectedMonth && b.year === selectedYear);
+    return stored?.amount ?? (defaultBudgets[cat] ?? 0);
+  };
 
   const handleSave = (category: string) => {
     const val = Number(editValue);
-    if (val >= 0) { setBudget(category, val, selectedYear, selectedMonth); toast.success(`Budget updated for ${category}`); }
+    if (val >= 0) { setBudget(category, val, selectedYear, selectedMonth); setBudgetOverrides(m => ({ ...m, [category]: val })); toast.success(`Budget updated for ${category}`); }
     setEditing(null);
   };
-  const handleSaveDebt = (cat: string) => {
-    const val = Number(editDebtValue);
-    if (val >= 0) { setDebtExpectedOverrides(m => ({ ...m, [cat]: val })); toast.success(`Expected updated for ${cat}`); }
-    setEditingDebt(null);
-  };
 
-  // Totals
-  const homeExpected  = allHomeCategories.reduce((s, c) => s + c.budget, 0);
-  const homeActual    = allHomeCategories.reduce((s, c) => s + c.actual, 0);
-  const homeBalance   = homeExpected - homeActual;
-  const debtExpected  = allDebtCats.reduce((s, c) => s + getDebtExpected(c), 0);
-  const debtActual    = allDebtCats.reduce((s, c) => s + (debtActuals[c] || 0), 0);
-  const debtBalance   = debtExpected - debtActual;
-  const overallExpected = homeExpected + debtExpected;
-  const overallActual   = homeActual + debtActual;
+  // Per-group expense data — fully dynamic
+  const groupData = useMemo(() =>
+    transactionGroups.map(g => {
+      const cats = expenseCategoriesByGroup[g.id] || [];
+      const rows = cats.map(cat => {
+        const budget = getBudget(cat);
+        const actual = monthTxns
+          .filter(t => t.type === 'expense' && t.homeOrDebt === g.id && t.category === cat)
+          .reduce((s, t) => s + t.amount, 0);
+        const remaining = budget - actual;
+        const percent = budget > 0 ? (actual / budget) * 100 : 0;
+        return { category: cat, budget, actual, remaining, percent, overspent: actual > budget };
+      });
+      const totalBudget  = rows.reduce((s, r) => s + r.budget, 0);
+      const totalActual  = rows.reduce((s, r) => s + r.actual, 0);
+      const totalBalance = totalBudget - totalActual;
+      const overspendAmt = rows.filter(r => r.overspent).reduce((s, r) => s + (r.actual - r.budget), 0);
+      return { group: g, rows, totalBudget, totalActual, totalBalance, overspendAmt };
+    }),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [transactionGroups, expenseCategoriesByGroup, monthTxns, state.budgets, selectedYear, selectedMonth, budgetOverrides, defaultBudgets]);
+
+  const overallExpected = groupData.reduce((s, g) => s + g.totalBudget, 0);
+  const overallActual   = groupData.reduce((s, g) => s + g.totalActual, 0);
   const overallBalance  = overallExpected - overallActual;
-  const homeOverspend   = allHomeCategories.filter(c => c.overspent).reduce((s, c) => s + (c.actual - c.budget), 0);
-  const overspentCount  = allHomeCategories.filter(c => c.overspent).length;
-  const nearLimitCount  = allHomeCategories.filter(c => !c.overspent && c.percent >= 80).length;
+  const homeOverspend   = groupData.find(g => g.group.id === 'home')?.overspendAmt ?? 0;
+  const homeGroupData = groupData.find(g => g.group.id === 'home');
+  const allRowsFlat   = groupData.flatMap(g => g.rows);
+  const overspentCount  = allRowsFlat.filter(c => c.overspent).length;
+  const nearLimitCount  = allRowsFlat.filter(c => !c.overspent && c.percent >= 80).length;
   const overallUsagePct = overallExpected > 0 ? Math.round((overallActual / overallExpected) * 100) : 0;
 
   const fmt    = (n: number) => `₹${n.toLocaleString('en-IN')}`;
@@ -174,7 +152,7 @@ export default function BudgetPage() {
   // Category percentages for expanded usage breakdown
   const categoryUsageBreakdown = useMemo(() => {
     if (overallActual === 0) return [];
-    return allHomeCategories
+    return allRowsFlat
       .filter(c => c.actual > 0)
       .sort((a, b) => b.actual - a.actual)
       .map(c => ({
@@ -183,7 +161,7 @@ export default function BudgetPage() {
         pct: Math.round((c.actual / overallActual) * 100),
         overspent: c.overspent,
       }));
-  }, [allHomeCategories, overallActual]);
+  }, [allRowsFlat, overallActual]);
 
   return (
     <div className="pb-20 px-2 sm:px-4 pt-4 max-w-2xl mx-auto space-y-4 animate-slide-up">
@@ -303,305 +281,149 @@ export default function BudgetPage() {
         </div>
       )}
 
-      {/* ── HOME EXPENSE TABLE ── */}
-      <div className="glass-card rounded-xl p-4 mx-2 overflow-x-auto">
-        <div className="flex items-center gap-2 mb-3">
-          <h2 className="text-sm font-semibold text-foreground">🏠 Home Expenses</h2>
-          {customHome.length > 0 && (
-            <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-              +{customHome.length} custom
-            </span>
-          )}
-          <span className="text-[10px] text-muted-foreground ml-auto">Tap row to expand</span>
-        </div>
-        <div className="min-w-[520px]">
-          <div className="flex items-center gap-3 text-xs text-muted-foreground px-2 mb-2 font-semibold border-b border-border/40 pb-2">
-            <span className="w-5 shrink-0" />
-            <span className="flex-1 min-w-[100px]">Category</span>
-            <span className="w-24 text-right shrink-0">Expected</span>
-            <span className="w-24 text-right shrink-0">Actual</span>
-            <span className="w-24 text-right shrink-0">Balance</span>
-            <span className="w-20 text-right shrink-0">Overspend</span>
-            <span className="w-4 shrink-0" />
+      {/* ── DYNAMIC GROUP EXPENSE TABLES ── */}
+      {groupData.map(({ group: g, rows, totalBudget, totalActual, totalBalance, overspendAmt }) => (
+        <div key={g.id} className="glass-card rounded-xl p-4 mx-2 overflow-x-auto">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-lg">{g.emoji}</span>
+            <h2 className="text-sm font-semibold text-foreground">{g.label} Expenses</h2>
+            <span className="text-[10px] text-muted-foreground ml-auto">Tap row to expand</span>
           </div>
-          <div className="space-y-0">
-            {allHomeCategories.map(c => {
-              const overspendAmt = c.overspent ? c.actual - c.budget : 0;
-              const txns = categoryTxnMap[c.category] || [];
-              const isExpanded = expandedHomeCategory === c.category;
+          <div className="min-w-[520px]">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground px-2 mb-2 font-semibold border-b border-border/40 pb-2">
+              <span className="w-5 shrink-0" />
+              <span className="flex-1 min-w-[100px]">Category</span>
+              <span className="w-24 text-right shrink-0">Budget</span>
+              <span className="w-24 text-right shrink-0">Actual</span>
+              <span className="w-24 text-right shrink-0">Balance</span>
+              <span className="w-20 text-right shrink-0">Overspend</span>
+              <span className="w-4 shrink-0" />
+            </div>
 
-              return (
-                <div key={c.category}>
-                  <button
-                    className={cn(
-                      'w-full rounded-lg px-2 py-2 transition-colors text-left',
-                      c.overspent ? 'bg-destructive/8' : c.percent >= 80 ? 'bg-warning/8' : 'hover:bg-muted/20',
-                      isExpanded ? 'rounded-b-none border-b-0' : '',
-                    )}
-                    onClick={() => setExpandedHomeCategory(isExpanded ? null : c.category)}
-                  >
-                    <div className="flex items-center gap-3">
-                      {statusIcon(c)}
-                      <span className="flex-1 text-xs font-medium text-foreground min-w-[100px] truncate text-left">
-                        {c.category}
-                        {txns.length > 0 && (
-                          <span className="ml-1.5 text-[9px] bg-muted/80 text-muted-foreground rounded px-1 py-0.5">
-                            {txns.length}
-                          </span>
+            {rows.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-4">
+                No {g.label} expense sources. Add them in Settings.
+              </p>
+            ) : (
+              <div className="space-y-0">
+                {rows.map(c => {
+                  const overspendRow = c.overspent ? c.actual - c.budget : 0;
+                  const txns = categoryTxnMap[c.category] || [];
+                  const isExpanded = expandedCategory === c.category;
+                  return (
+                    <div key={c.category}>
+                      <button
+                        className={cn(
+                          'w-full rounded-lg px-2 py-2 transition-colors text-left',
+                          c.overspent ? 'bg-destructive/8' : c.percent >= 80 ? 'bg-warning/8' : 'hover:bg-muted/20',
+                          isExpanded ? 'rounded-b-none border-b-0' : '',
                         )}
-                      </span>
-                      {editing === c.category ? (
-                        <div className="flex items-center gap-1 w-24 justify-end shrink-0" onClick={e => e.stopPropagation()}>
-                          <Input type="number" className="w-20 h-6 text-xs px-1" value={editValue}
-                            onChange={e => setEditValue(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') handleSave(c.category); if (e.key === 'Escape') setEditing(null); }}
-                            autoFocus />
-                          <button onClick={e => { e.stopPropagation(); handleSave(c.category); }} className="text-success"><Check className="h-3 w-3" /></button>
-                          <button onClick={e => { e.stopPropagation(); setEditing(null); }} className="text-muted-foreground"><X className="h-3 w-3" /></button>
-                        </div>
-                      ) : (
-                        <button
-                          className="w-24 text-right text-xs text-muted-foreground hover:text-primary flex items-center justify-end gap-0.5 group shrink-0"
-                          onClick={e => { e.stopPropagation(); setEditing(c.category); setEditValue(String(c.budget)); }}>
-                          {fmt(c.budget)}<Pencil className="h-2.5 w-2.5 opacity-0 group-hover:opacity-60" />
-                        </button>
-                      )}
-                      <span className={cn('w-24 text-right text-xs font-semibold shrink-0', c.actual > 0 ? 'text-foreground' : 'text-muted-foreground')}>
-                        {fmt(c.actual)}
-                      </span>
-                      <span className={cn('w-24 text-right text-xs font-bold shrink-0',
-                        c.remaining < 0 ? 'text-destructive' : c.remaining < c.budget * 0.2 ? 'text-warning' : 'text-success')}>
-                        {fmtBal(c.remaining)}
-                      </span>
-                      <span className={cn('w-20 text-right text-xs font-bold shrink-0', overspendAmt > 0 ? 'text-destructive' : 'text-muted-foreground')}>
-                        {overspendAmt > 0 ? fmt(overspendAmt) : '—'}
-                      </span>
-                      <div className="w-4 shrink-0 flex justify-center">
-                        {txns.length > 0 && (isExpanded
-                          ? <ChevronUp className="h-3 w-3 text-muted-foreground" />
-                          : <ChevronDown className="h-3 w-3 text-muted-foreground" />)}
-                      </div>
-                    </div>
-                    <div className="mt-1.5 ml-8 mr-4">
-                      <Progress value={Math.min(c.percent, 100)}
-                        className={cn('h-1',
-                          c.overspent ? '[&>div]:bg-destructive' :
-                          c.percent >= 80 ? '[&>div]:bg-warning' : '[&>div]:bg-success')} />
-                    </div>
-                  </button>
-
-                  {isExpanded && (
-                    <div className={cn(
-                      'ml-2 mr-2 mb-1 rounded-b-lg border border-t-0 px-3 py-2',
-                      c.overspent ? 'bg-destructive/5 border-destructive/15' :
-                      c.percent >= 80 ? 'bg-warning/5 border-warning/15' :
-                      'bg-muted/20 border-border/20',
-                    )}>
-                      {txns.length === 0 ? (
-                        <p className="text-xs text-muted-foreground py-2 text-center">No transactions recorded</p>
-                      ) : (
-                        <>
-                          <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mb-1.5">
-                            {txns.length} transaction{txns.length > 1 ? 's' : ''}
-                          </p>
-                          <div className="space-y-0">
-                            {txns.map(t => <CategoryTxnRow key={t.id} t={t} accounts={accounts} />)}
-                          </div>
-                          <div className="flex justify-between text-xs font-bold pt-2 mt-1 border-t border-border/20">
-                            <span className="text-muted-foreground">Total</span>
-                            <span className="text-destructive tabular-nums">{fmt(c.actual)}</span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex items-center gap-3 px-2 pt-3 mt-2 border-t border-border/50 text-xs font-bold bg-muted/30 rounded-lg py-2">
-            <span className="w-5 shrink-0" />
-            <span className="flex-1 min-w-[100px]">Total Home Expenses</span>
-            <span className="w-24 text-right shrink-0">{fmt(homeExpected)}</span>
-            <span className="w-24 text-right text-destructive shrink-0">{fmt(homeActual)}</span>
-            <span className={cn('w-24 text-right shrink-0', homeBalance >= 0 ? 'text-success' : 'text-destructive')}>
-              {fmtBal(homeBalance)}
-            </span>
-            <span className={cn('w-20 text-right shrink-0', homeOverspend > 0 ? 'text-destructive' : 'text-muted-foreground')}>
-              {homeOverspend > 0 ? fmt(homeOverspend) : '—'}
-            </span>
-            <span className="w-4 shrink-0" />
-          </div>
-        </div>
-      </div>
-
-      {/* ── DEBT EXPENSE TABLE ── */}
-      <div className="glass-card rounded-xl p-4 mx-2 overflow-x-auto">
-        <div className="flex items-center gap-2 mb-3">
-          <h2 className="text-sm font-semibold text-foreground">💳 Debt Expenses</h2>
-          {customDebt.length > 0 && (
-            <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-              +{customDebt.length} custom
-            </span>
-          )}
-          <span className="text-[10px] text-muted-foreground ml-auto">Tap row to expand</span>
-        </div>
-        <div className="min-w-[520px]">
-          <div className="flex items-center gap-3 text-xs text-muted-foreground px-2 mb-2 font-semibold border-b border-border/40 pb-2">
-            <span className="w-5 shrink-0" />
-            <span className="flex-1 min-w-[100px]">Category</span>
-            <span className="w-24 text-right shrink-0">Expected</span>
-            <span className="w-24 text-right shrink-0">Actual</span>
-            <span className="w-24 text-right shrink-0">Balance</span>
-            <span className="w-20 text-right shrink-0">Overspend</span>
-            <span className="w-4 shrink-0" />
-          </div>
-          <div className="space-y-0">
-            {allDebtCats.map(cat => {
-              const exp    = getDebtExpected(cat);
-              const actual = debtActuals[cat] || 0;
-              const bal    = exp - actual;
-              const over   = actual > exp && exp > 0;
-              const overspendAmt = over ? actual - exp : 0;
-              const txns = categoryTxnMap[cat] || [];
-              const isExpanded = expandedDebtCategory === cat;
-
-              return (
-                <div key={cat}>
-                  <button
-                    className={cn(
-                      'w-full rounded-lg px-2 py-2 transition-colors text-left',
-                      over ? 'bg-destructive/8 hover:bg-destructive/12' : 'hover:bg-muted/20',
-                      isExpanded ? 'rounded-b-none' : '',
-                    )}
-                    onClick={() => setExpandedDebtCategory(isExpanded ? null : cat)}
-                  >
-                    <div className="flex items-center gap-3">
-                      {over
-                        ? <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
-                        : <CheckCircle className="h-3.5 w-3.5 text-success shrink-0 opacity-50" />}
-                      <span className="flex-1 text-xs font-medium text-foreground min-w-[100px] truncate">
-                        {cat}
-                        {txns.length > 0 && (
-                          <span className="ml-1.5 text-[9px] bg-muted/80 text-muted-foreground rounded px-1 py-0.5">
-                            {txns.length}
+                        onClick={() => setExpandedCategory(isExpanded ? null : c.category)}
+                      >
+                        <div className="flex items-center gap-3">
+                          {statusIcon(c)}
+                          <span className="flex-1 text-xs font-medium text-foreground min-w-[100px] truncate text-left">
+                            {c.category}
+                            {txns.length > 0 && (
+                              <span className="ml-1.5 text-[9px] bg-muted/80 text-muted-foreground rounded px-1 py-0.5">
+                                {txns.length}
+                              </span>
+                            )}
                           </span>
-                        )}
-                      </span>
-                      {editingDebt === cat ? (
-                        <div className="flex items-center gap-1 w-24 justify-end shrink-0" onClick={e => e.stopPropagation()}>
-                          <Input type="number" className="w-20 h-6 text-xs px-1" value={editDebtValue}
-                            onChange={e => setEditDebtValue(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') handleSaveDebt(cat); if (e.key === 'Escape') setEditingDebt(null); }}
-                            autoFocus />
-                          <button onClick={e => { e.stopPropagation(); handleSaveDebt(cat); }} className="text-success"><Check className="h-3 w-3" /></button>
-                          <button onClick={e => { e.stopPropagation(); setEditingDebt(null); }} className="text-muted-foreground"><X className="h-3 w-3" /></button>
+                          {editing === c.category ? (
+                            <div className="flex items-center gap-1 w-24 justify-end shrink-0" onClick={e => e.stopPropagation()}>
+                              <Input type="number" className="w-20 h-6 text-xs px-1" value={editValue}
+                                onChange={e => setEditValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') handleSave(c.category); if (e.key === 'Escape') setEditing(null); }}
+                                autoFocus />
+                              <button onClick={e => { e.stopPropagation(); handleSave(c.category); }} className="text-success"><Check className="h-3 w-3" /></button>
+                              <button onClick={e => { e.stopPropagation(); setEditing(null); }} className="text-muted-foreground"><X className="h-3 w-3" /></button>
+                            </div>
+                          ) : (
+                            <button
+                              className="w-24 text-right text-xs text-muted-foreground hover:text-primary flex items-center justify-end gap-0.5 group shrink-0"
+                              onClick={e => { e.stopPropagation(); setEditing(c.category); setEditValue(String(c.budget)); }}>
+                              {fmt(c.budget)}<Pencil className="h-2.5 w-2.5 opacity-0 group-hover:opacity-60" />
+                            </button>
+                          )}
+                          <span className={cn('w-24 text-right text-xs font-semibold shrink-0', c.actual > 0 ? 'text-foreground' : 'text-muted-foreground')}>
+                            {fmt(c.actual)}
+                          </span>
+                          <span className={cn('w-24 text-right text-xs font-bold shrink-0',
+                            c.remaining < 0 ? 'text-destructive' : c.remaining < c.budget * 0.2 ? 'text-warning' : 'text-success')}>
+                            {fmtBal(c.remaining)}
+                          </span>
+                          <span className={cn('w-20 text-right text-xs font-bold shrink-0', overspendRow > 0 ? 'text-destructive' : 'text-muted-foreground')}>
+                            {overspendRow > 0 ? fmt(overspendRow) : '—'}
+                          </span>
+                          <div className="w-4 shrink-0 flex justify-center">
+                            {txns.length > 0 && (isExpanded
+                              ? <ChevronUp className="h-3 w-3 text-muted-foreground" />
+                              : <ChevronDown className="h-3 w-3 text-muted-foreground" />)}
+                          </div>
                         </div>
-                      ) : (
-                        <button
-                          className="w-24 text-right text-xs text-muted-foreground hover:text-primary flex items-center justify-end gap-0.5 group shrink-0"
-                          onClick={e => { e.stopPropagation(); setEditingDebt(cat); setEditDebtValue(String(exp)); }}>
-                          {fmt(exp)}<Pencil className="h-2.5 w-2.5 opacity-0 group-hover:opacity-60" />
-                        </button>
-                      )}
-                      <span className={cn('w-24 text-right text-xs font-semibold shrink-0', actual > 0 ? 'text-foreground' : 'text-muted-foreground')}>
-                        {fmt(actual)}
-                      </span>
-                      <span className={cn('w-24 text-right text-xs font-bold shrink-0', bal >= 0 ? 'text-success' : 'text-destructive')}>
-                        {fmtBal(bal)}
-                      </span>
-                      <span className={cn('w-20 text-right text-xs font-bold shrink-0', overspendAmt > 0 ? 'text-destructive' : 'text-muted-foreground')}>
-                        {overspendAmt > 0 ? fmt(overspendAmt) : '—'}
-                      </span>
-                      <div className="w-4 shrink-0 flex justify-center">
-                        {txns.length > 0 && (isExpanded
-                          ? <ChevronUp className="h-3 w-3 text-muted-foreground" />
-                          : <ChevronDown className="h-3 w-3 text-muted-foreground" />)}
-                      </div>
-                    </div>
-                  </button>
+                        <div className="mt-1.5 ml-8 mr-4">
+                          <Progress value={Math.min(c.percent, 100)}
+                            className={cn('h-1',
+                              c.overspent ? '[&>div]:bg-destructive' :
+                              c.percent >= 80 ? '[&>div]:bg-warning' : '[&>div]:bg-success')} />
+                        </div>
+                      </button>
 
-                  {isExpanded && (
-                    <div className={cn(
-                      'ml-2 mr-2 mb-1 rounded-b-lg border border-t-0 px-3 py-2',
-                      over ? 'bg-destructive/5 border-destructive/15' : 'bg-muted/20 border-border/20',
-                    )}>
-                      {txns.length === 0 ? (
-                        <p className="text-xs text-muted-foreground py-2 text-center">No transactions recorded</p>
-                      ) : (
-                        <>
-                          <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mb-1.5">
-                            {txns.length} transaction{txns.length > 1 ? 's' : ''}
-                          </p>
-                          <div className="space-y-0">
-                            {txns.map(t => <CategoryTxnRow key={t.id} t={t} accounts={accounts} />)}
-                          </div>
-                          <div className="flex justify-between text-xs font-bold pt-2 mt-1 border-t border-border/20">
-                            <span className="text-muted-foreground">Total</span>
-                            <span className="text-destructive tabular-nums">{fmt(actual)}</span>
-                          </div>
-                        </>
+                      {isExpanded && (
+                        <div className={cn('ml-2 mr-2 mb-1 rounded-b-lg border border-t-0 px-3 py-2',
+                          c.overspent ? 'bg-destructive/5 border-destructive/15' : 'bg-muted/20 border-border/20')}>
+                          {txns.length === 0 ? (
+                            <p className="text-xs text-muted-foreground py-2 text-center">No transactions recorded</p>
+                          ) : (
+                            <>
+                              <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mb-1.5">
+                                {txns.length} transaction{txns.length > 1 ? 's' : ''}
+                              </p>
+                              <div className="space-y-0">
+                                {txns.map(t => <CategoryTxnRow key={t.id} t={t} accounts={accounts} />)}
+                              </div>
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            )}
 
-          <div className="flex items-center gap-3 px-2 pt-3 mt-2 border-t border-border/50 text-xs font-bold bg-muted/30 rounded-lg py-2">
-            <span className="w-5 shrink-0" />
-            <span className="flex-1 min-w-[100px]">Total Debt Expenses</span>
-            <span className="w-24 text-right shrink-0">{fmt(debtExpected)}</span>
-            <span className="w-24 text-right text-destructive shrink-0">{fmt(debtActual)}</span>
-            <span className={cn('w-24 text-right shrink-0', debtBalance >= 0 ? 'text-success' : 'text-destructive')}>
-              {fmtBal(debtBalance)}
-            </span>
-            <span className="w-20 text-right text-muted-foreground shrink-0">—</span>
-            <span className="w-4 shrink-0" />
+            {rows.length > 0 && (
+              <div className="flex items-center gap-3 px-2 pt-3 mt-2 border-t border-border/50 text-xs font-bold bg-muted/30 rounded-lg py-2">
+                <span className="w-5 shrink-0" />
+                <span className="flex-1 min-w-[100px]">Total {g.label} Expenses</span>
+                <span className="w-24 text-right shrink-0">{fmt(totalBudget)}</span>
+                <span className="w-24 text-right text-destructive shrink-0">{fmt(totalActual)}</span>
+                <span className={cn('w-24 text-right shrink-0', totalBalance >= 0 ? 'text-success' : 'text-destructive')}>{fmtBal(totalBalance)}</span>
+                <span className={cn('w-20 text-right shrink-0', overspendAmt > 0 ? 'text-destructive' : 'text-muted-foreground')}>
+                  {overspendAmt > 0 ? fmt(overspendAmt) : '—'}
+                </span>
+                <span className="w-4 shrink-0" />
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      ))}
 
       {/* BOTTOM SUMMARY */}
       <div className="glass-card rounded-xl p-4 mx-2 border border-destructive/20 space-y-4">
         <h2 className="text-sm font-semibold text-destructive">Overall Expenses Summary</h2>
-        <div className="rounded-xl bg-muted/30 p-3 space-y-1.5 text-xs">
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2">🏠 Home</p>
-          <div className="flex justify-between"><span className="text-muted-foreground">Total Home Expected</span><span className="font-semibold tabular-nums">{fmt(homeExpected)}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Total Home Actual</span><span className="font-semibold text-destructive tabular-nums">{fmt(homeActual)}</span></div>
-          <div className="flex justify-between border-t border-border/40 pt-1.5 font-bold text-sm">
-            <span>Balance in Home</span>
-            <span className={cn('tabular-nums', homeBalance >= 0 ? 'text-success' : 'text-destructive')}>{fmtBal(homeBalance)}</span>
-          </div>
-        </div>
-        <div className="rounded-xl bg-muted/30 p-3 space-y-1.5 text-xs">
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2">💳 Debt</p>
-          <div className="flex justify-between"><span className="text-muted-foreground">Total Debt Expected</span><span className="font-semibold tabular-nums">{fmt(debtExpected)}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Total Debt Actual</span><span className="font-semibold text-destructive tabular-nums">{fmt(debtActual)}</span></div>
-          <div className="flex justify-between border-t border-border/40 pt-1.5 font-bold text-sm">
-            <span>Balance in Debt</span>
-            <span className={cn('tabular-nums', debtBalance >= 0 ? 'text-success' : 'text-destructive')}>{fmtBal(debtBalance)}</span>
-          </div>
-        </div>
-        <div className="rounded-xl bg-primary/8 border border-primary/20 p-3 space-y-1.5 text-xs">
-          <p className="text-[11px] font-bold text-primary uppercase tracking-wide mb-2">📊 Overall</p>
-          <div className="flex justify-between"><span className="text-muted-foreground">Overall Expected</span><span className="font-semibold tabular-nums">{fmt(overallExpected)}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Overall Actual</span><span className="font-semibold text-destructive tabular-nums">{fmt(overallActual)}</span></div>
-          <div className="flex justify-between border-t border-border/40 pt-1.5 font-bold text-sm">
-            <span>Balance</span>
-            <span className={cn('tabular-nums', overallBalance >= 0 ? 'text-success' : 'text-destructive')}>
-              {overallBalance >= 0 ? `Under by ${fmt(overallBalance)}` : `Over by ${fmt(Math.abs(overallBalance))}`}
-            </span>
-          </div>
-          {homeOverspend > 0 && (
-            <div className="flex justify-between border-t border-border/40 pt-1.5">
-              <span className="text-muted-foreground">Home Overspend</span>
-              <span className="font-bold text-destructive tabular-nums">{fmt(homeOverspend)}</span>
+        {groupData.map(({ group: g, totalBudget, totalActual, totalBalance }) => (
+          <div key={g.id} className="rounded-xl bg-muted/30 p-3 space-y-1.5 text-xs">
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2">{g.emoji} {g.label}</p>
+            <div className="flex justify-between"><span className="text-muted-foreground">Budget</span><span className="font-semibold tabular-nums">{fmt(totalBudget)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Actual</span><span className="font-semibold text-destructive tabular-nums">{fmt(totalActual)}</span></div>
+            <div className="flex justify-between border-t border-border/40 pt-1.5 font-bold text-sm">
+              <span>Balance</span>
+              <span className={cn('tabular-nums', totalBalance >= 0 ? 'text-success' : 'text-destructive')}>{fmtBal(totalBalance)}</span>
             </div>
-          )}
-        </div>
+          </div>
+        ))}
       </div>
 
       <TransactionForm />

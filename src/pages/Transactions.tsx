@@ -33,12 +33,12 @@ function TxnDialog({ open, onClose, initial, mode, onSave }: {
   onSave: (t: Partial<Transaction>) => void;
 }) {
   const { state } = useFinance();
-  const { persons, accounts, getAccountsForPerson, getCategoriesFor } = useAppData();
+  const { persons, accounts, getAccountsForPerson, getCategoriesFor, transactionGroups } = useAppData();
   const [form, setForm] = useState<Partial<Transaction>>({ ...initial });
 
   const cats = getCategoriesFor(
     (form.type as 'income' | 'expense' | 'transfer') || 'expense',
-    (form.homeOrDebt as 'home' | 'debt') || 'home',
+    form.homeOrDebt || (transactionGroups[0]?.id ?? 'home'),
   );
 
   const personAccounts = form.person ? getAccountsForPerson(form.person) : [];
@@ -83,10 +83,10 @@ function TxnDialog({ open, onClose, initial, mode, onSave }: {
           <div>
             <Label className="text-xs">Classification</Label>
             <div className="grid grid-cols-2 gap-2 mt-1">
-              {(['home', 'debt'] as HomeOrDebt[]).map(hd => (
-                <Button key={hd} size="sm" variant={form.homeOrDebt === hd ? 'default' : 'outline'}
-                  onClick={() => setForm(f => ({ ...f, homeOrDebt: hd, category: '' }))}>
-                  {hd === 'home' ? '🏠 Home' : '💳 Debt'}
+              {transactionGroups.map(g => (
+                <Button key={g.id} size="sm" variant={form.homeOrDebt === g.id ? 'default' : 'outline'}
+                  onClick={() => setForm(f => ({ ...f, homeOrDebt: g.id, category: '' }))}>
+                  {g.emoji} {g.label}
                 </Button>
               ))}
             </div>

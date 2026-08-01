@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { Transaction, Budget, RecurringEntry, FinancialState, Person, IncomeSource, ExpenseSource, Account } from '@/lib/types';
+import { Transaction, Budget, RecurringEntry, FinancialState, Person, IncomeSource, ExpenseSource, Account, TransactionGroup } from '@/lib/types';
 import { generateId, normalizeTransaction } from '@/lib/financial-store';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -38,6 +38,7 @@ interface FinanceContextType {
   setAccountNames: (names: Record<string, string>) => Promise<void>;
   setCustomAccounts: (accounts: Account[]) => Promise<void>;
   setCustomPersons: (persons: string[]) => Promise<void>;
+  setTransactionGroups: (groups: TransactionGroup[]) => Promise<void>;
   missingMoneyLog: MissingMoneyEntry[];
   logMissingMoney: (date: string, amount: number) => void;
   migrateData: () => Promise<{ success: boolean; message: string }>;
@@ -157,80 +158,57 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   // ─── BALANCES ─────────────────────────────────────────────────────────────
 
   const setInitialBalance = useCallback(async (person: Person, amount: number) => {
-    setState(s => {
-      const updated = { ...s, initialBalances: { ...s.initialBalances, [person]: amount } };
-      saveConfig('initialBalances', updated.initialBalances, userId);
-      return updated;
-    });
-  }, []);
+    const updated = { ...state.initialBalances, [person]: amount };
+    setState(s => ({ ...s, initialBalances: updated }));
+    await saveConfig('initialBalances', updated, userId);
+  }, [state.initialBalances, userId]);
 
   const setAccountBalance = useCallback(async (accountId: string, amount: number) => {
-    setState(s => {
-      const updated = { ...s, accountBalances: { ...s.accountBalances, [accountId]: amount } };
-      saveConfig('accountBalances', updated.accountBalances, userId);
-      return updated;
-    });
-  }, []);
+    const updated = { ...state.accountBalances, [accountId]: amount };
+    setState(s => ({ ...s, accountBalances: updated }));
+    await saveConfig('accountBalances', updated, userId);
+  }, [state.accountBalances, userId]);
 
   // ─── REAL BALANCE (physical cash/bank) ────────────────────────────────────
-  // Persists the ENTIRE realBalances map to Supabase app_config as key='realBalances'.
-  // Optimistic update → setState first, then async save.
 
   const setRealBalance = useCallback(async (accountId: string, amount: number) => {
-    let updatedMap: Record<string, number> = {};
-
-    setState(s => {
-      updatedMap = { ...s.realBalances, [accountId]: Math.round(amount) };
-      return { ...s, realBalances: updatedMap };
-    });
-
+    const updatedMap = { ...state.realBalances, [accountId]: Math.round(amount) };
+    setState(s => ({ ...s, realBalances: updatedMap }));
     setIsSyncing(true);
-    // Small delay to let setState flush so updatedMap is captured correctly
-    await new Promise(r => setTimeout(r, 0));
     await saveConfig('realBalances', updatedMap, userId);
     setIsSyncing(false);
-  }, []);
+  }, [state.realBalances, userId]);
 
   // ─── SETTINGS CRUD ────────────────────────────────────────────────────────
 
   const setIncomeSources = useCallback(async (sources: IncomeSource[]) => {
-    setState(s => {
-      const updated = { ...s, incomeSources: sources };
-      saveConfig('incomeSources', sources, userId);
-      return updated;
-    });
-  }, []);
+    setState(s => ({ ...s, incomeSources: sources }));
+    await saveConfig('incomeSources', sources, userId);
+  }, [userId]);
 
   const setExpenseSources = useCallback(async (sources: ExpenseSource[]) => {
-    setState(s => {
-      const updated = { ...s, expenseSources: sources };
-      saveConfig('expenseSources', sources, userId);
-      return updated;
-    });
-  }, []);
+    setState(s => ({ ...s, expenseSources: sources }));
+    await saveConfig('expenseSources', sources, userId);
+  }, [userId]);
 
   const setAccountNames = useCallback(async (names: Record<string, string>) => {
-    setState(s => {
-      const updated = { ...s, accountNames: names };
-      saveConfig('accountNames', names, userId);
-      return updated;
-    });
-  }, []);
+    setState(s => ({ ...s, accountNames: names }));
+    await saveConfig('accountNames', names, userId);
+  }, [userId]);
 
   const setCustomAccounts = useCallback(async (accounts: Account[]) => {
-    setState(s => {
-      const updated = { ...s, customAccounts: accounts };
-      saveConfig('customAccounts', accounts, userId);
-      return updated;
-    });
+    setState(s => ({ ...s, customAccounts: accounts }));
+    await saveConfig('customAccounts', accounts, userId);
   }, [userId]);
 
   const setCustomPersons = useCallback(async (persons: string[]) => {
-    setState(s => {
-      const updated = { ...s, customPersons: persons };
-      saveConfig('customPersons', persons, userId);
-      return updated;
-    });
+    setState(s => ({ ...s, customPersons: persons }));
+    await saveConfig('customPersons', persons, userId);
+  }, [userId]);
+
+  const setTransactionGroups = useCallback(async (groups: TransactionGroup[]) => {
+    setState(s => ({ ...s, transactionGroups: groups }));
+    await saveConfig('transactionGroups', groups, userId);
   }, [userId]);
 
   // ─── MISSING MONEY LOG ────────────────────────────────────────────────────
@@ -271,7 +249,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       setBudget, addRecurring, deleteRecurring,
       setInitialBalance, setAccountBalance,
       setRealBalance,
-      setIncomeSources, setExpenseSources, setAccountNames, setCustomAccounts, setCustomPersons,
+      setIncomeSources, setExpenseSources, setAccountNames, setCustomAccounts, setCustomPersons, setTransactionGroups,
       missingMoneyLog, logMissingMoney,
       migrateData, refreshFromCloud,
       selectedYear, selectedMonth, setSelectedYear, setSelectedMonth,
