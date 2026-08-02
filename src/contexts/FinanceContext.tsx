@@ -32,6 +32,7 @@ interface FinanceContextType {
   deleteRecurring: (id: string) => Promise<void>;
   setInitialBalance: (person: Person, amount: number) => Promise<void>;
   setAccountBalance: (accountId: string, amount: number) => Promise<void>;
+  setAccountBalances: (balances: Record<string, number>) => Promise<void>;
   setRealBalance: (accountId: string, amount: number) => Promise<void>;
   setIncomeSources: (sources: IncomeSource[]) => Promise<void>;
   setExpenseSources: (sources: ExpenseSource[]) => Promise<void>;
@@ -164,10 +165,19 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   }, [state.initialBalances, userId]);
 
   const setAccountBalance = useCallback(async (accountId: string, amount: number) => {
-    const updated = { ...state.accountBalances, [accountId]: amount };
-    setState(s => ({ ...s, accountBalances: updated }));
-    await saveConfig('accountBalances', updated, userId);
-  }, [state.accountBalances, userId]);
+    let latestBalances: Record<string, number> = {};
+    setState(s => {
+      latestBalances = { ...s.accountBalances, [accountId]: amount };
+      return { ...s, accountBalances: latestBalances };
+    });
+    await new Promise(r => setTimeout(r, 0));
+    await saveConfig('accountBalances', latestBalances, userId);
+  }, [userId]);
+
+  const setAccountBalances = useCallback(async (balances: Record<string, number>) => {
+    setState(s => ({ ...s, accountBalances: balances }));
+    await saveConfig('accountBalances', balances, userId);
+  }, [userId]);
 
   // ─── REAL BALANCE (physical cash/bank) ────────────────────────────────────
 
@@ -247,7 +257,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       state, isLoading, isSyncing,
       addTransaction, deleteTransaction, updateTransaction,
       setBudget, addRecurring, deleteRecurring,
-      setInitialBalance, setAccountBalance,
+      setInitialBalance, setAccountBalance, setAccountBalances,
       setRealBalance,
       setIncomeSources, setExpenseSources, setAccountNames, setCustomAccounts, setCustomPersons, setTransactionGroups,
       missingMoneyLog, logMissingMoney,

@@ -441,6 +441,22 @@ export function getHomeDebtSummary(txns: Transaction[], year: number, month: num
   };
 }
 
+/** Dynamic version — one entry per configured group */
+export function getGroupSummary(
+  txns: Transaction[],
+  year: number,
+  month: number,
+  groups: { id: string; label: string; emoji: string; color: string }[],
+) {
+  const m = getMonthTransactions(txns, year, month);
+  return groups.map(g => {
+    const income  = rc(m.filter(t => t.type === 'income'  && t.homeOrDebt === g.id).reduce((s, t) => rc(s + t.amount), 0));
+    const expense = rc(m.filter(t => t.type === 'expense' && t.homeOrDebt === g.id).reduce((s, t) => rc(s + t.amount), 0));
+    const balance = rc(income - expense);
+    return { group: g, income, expense, balance };
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // EXPECTED VS ACTUAL
 // ─────────────────────────────────────────────────────────────────────────────

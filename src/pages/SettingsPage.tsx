@@ -143,7 +143,7 @@ function SourceRow<T extends AnySource>({
 export default function SettingsPage() {
   const {
     state,
-    setAccountBalance,
+    setAccountBalances,
     setIncomeSources,
     setExpenseSources,
     setCustomAccounts,
@@ -245,9 +245,7 @@ export default function SettingsPage() {
   );
 
   const saveBalances = async () => {
-    for (const acc of accounts) {
-      await setAccountBalance(acc.id, acctBalances[acc.id] || 0);
-    }
+    await setAccountBalances(acctBalances);
     toast.success('Opening balances saved');
   };
 
@@ -657,29 +655,22 @@ export default function SettingsPage() {
               No income sources yet. Add below.
             </p>
           )}
-         {incomeSources.map(s => (
-  <SourceRow
-    key={s.id}
-    source={s}
-    isEditing={editingIncomeId === s.id}
-    editFields={editIncomeFields as Partial<IncomeSource>}
-    setEditFields={f => setEditIncomeFields(f as Partial<IncomeSource>)}
-    onEdit={() => {
-      setEditingIncomeId(s.id);
-      setEditIncomeFields({
-        name: s.name,
-        group: s.group,
-        defaultExpected: s.defaultExpected,
-      });
-    }}
-    onSave={() => saveIncomeEdit(s.id)}
-    onCancel={() => setEditingIncomeId(null)}
-    onDelete={() => setDeleteIncomeTarget(s)}
-    amountKey="defaultExpected"
-    amountLabel="₹ Expected"
-    transactionGroups={transactionGroups}
-  />
-))}
+          {incomeSources.map(s => (
+            <SourceRow
+              key={s.id}
+              source={s}
+              isEditing={editingIncomeId === s.id}
+              editFields={editIncomeFields as Partial<IncomeSource>}
+              setEditFields={f => setEditIncomeFields(f as Partial<IncomeSource>)}
+              onEdit={() => { setEditingIncomeId(s.id); setEditIncomeFields({ name: s.name, group: s.group, defaultExpected: s.defaultExpected }); }}
+              onSave={() => saveIncomeEdit(s.id)}
+              onCancel={() => setEditingIncomeId(null)}
+              onDelete={() => setDeleteIncomeTarget(s)}
+              amountKey="defaultExpected"
+              amountLabel="₹ Expected"
+              transactionGroups={transactionGroups}
+            />
+          ))}
           <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
             <p className="text-xs font-semibold text-foreground">Add Income Source</p>
             <Input
@@ -722,29 +713,22 @@ export default function SettingsPage() {
               No expense sources yet. Add below.
             </p>
           )}
-         {expenseSources.map(s => (
-  <SourceRow
-    key={s.id}
-    source={s}
-    isEditing={editingExpenseId === s.id}
-    editFields={editExpenseFields as Partial<ExpenseSource>}
-    setEditFields={f => setEditExpenseFields(f as Partial<ExpenseSource>)}
-    onEdit={() => {
-      setEditingExpenseId(s.id);
-      setEditExpenseFields({
-        name: s.name,
-        group: s.group,
-        defaultBudget: s.defaultBudget,
-      });
-    }}
-    onSave={() => saveExpenseEdit(s.id)}
-    onCancel={() => setEditingExpenseId(null)}
-    onDelete={() => setDeleteExpenseTarget(s)}
-    amountKey="defaultBudget"
-    amountLabel="₹ Budget"
-    transactionGroups={transactionGroups}
-  />
-))}
+          {expenseSources.map(s => (
+            <SourceRow
+              key={s.id}
+              source={s}
+              isEditing={editingExpenseId === s.id}
+              editFields={editExpenseFields as Partial<ExpenseSource>}
+              setEditFields={f => setEditExpenseFields(f as Partial<ExpenseSource>)}
+              onEdit={() => { setEditingExpenseId(s.id); setEditExpenseFields({ name: s.name, group: s.group, defaultBudget: s.defaultBudget }); }}
+              onSave={() => saveExpenseEdit(s.id)}
+              onCancel={() => setEditingExpenseId(null)}
+              onDelete={() => setDeleteExpenseTarget(s)}
+              amountKey="defaultBudget"
+              amountLabel="₹ Budget"
+              transactionGroups={transactionGroups}
+            />
+          ))}
           <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
             <p className="text-xs font-semibold text-foreground">Add Expense Source</p>
             <Input

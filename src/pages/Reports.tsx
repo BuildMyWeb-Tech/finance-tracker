@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
+import { useAppData } from '@/hooks/useAppData';
 import {
-  getTotalBalance, getHomeDebtSummary, getMonthTransactions,
+  getTotalBalance, getGroupSummary, getMonthTransactions,
   getAccountBalance, rc,
 } from '@/lib/financial-store';
 import {
@@ -57,7 +58,10 @@ export default function Reports() {
 
   // ── Core data ──────────────────────────────────────────────────────────────
   const totals    = getTotalBalance(state.transactions, selectedYear, selectedMonth, state.initialBalances, state.accountBalances);
-  const homeDebt  = getHomeDebtSummary(state.transactions, selectedYear, selectedMonth);
+  const { transactionGroups } = useAppData();
+  const groupSummary = getGroupSummary(state.transactions, selectedYear, selectedMonth, transactionGroups);
+  const totalIncome  = groupSummary.reduce((s, g) => s + g.income, 0);
+  const totalExpense = groupSummary.reduce((s, g) => s + g.expense, 0);
   const monthTxns = getMonthTransactions(state.transactions, selectedYear, selectedMonth);
 
   const allAccounts   = state.customAccounts || [];
@@ -150,7 +154,7 @@ export default function Reports() {
       )}>
         {/* Account name */}
         <span className={cn(
-          'truncate leading-tight',
+          'break-words leading-tight min-w-0',
           bold ? 'text-foreground' : 'text-muted-foreground',
         )}>
           {label}
@@ -352,29 +356,31 @@ export default function Reports() {
             <div className="glass-card rounded-xl p-4">
               <p className="text-xs text-muted-foreground mb-1">Total Income</p>
               <p className="text-lg font-bold text-success tabular-nums">{fmt(totals.income)}</p>
-              <div className="mt-2">
-                <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                  <span>Home</span><span className="tabular-nums">{fmt(homeDebt.homeIncome)}</span>
-                </div>
-                <Progress value={totals.income > 0 ? (homeDebt.homeIncome / totals.income) * 100 : 0}
-                  className="h-1 [&>div]:bg-success" />
-                <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                  <span>Debt</span><span className="tabular-nums">{fmt(homeDebt.debtIncome)}</span>
-                </div>
+              <div className="mt-2 space-y-1">
+                {groupSummary.map(({ group: g, income }) => (
+                  <div key={g.id}>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-0.5">
+                      <span>{g.emoji} {g.label}</span><span className="tabular-nums">{fmt(income)}</span>
+                    </div>
+                    <Progress value={totals.income > 0 ? (income / totals.income) * 100 : 0}
+                      className="h-1 [&>div]:bg-success" />
+                  </div>
+                ))}
               </div>
             </div>
             <div className="glass-card rounded-xl p-4">
               <p className="text-xs text-muted-foreground mb-1">Total Expense</p>
               <p className="text-lg font-bold text-destructive tabular-nums">{fmt(totals.expense)}</p>
-              <div className="mt-2">
-                <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                  <span>Home</span><span className="tabular-nums">{fmt(homeDebt.homeExpense)}</span>
-                </div>
-                <Progress value={totals.expense > 0 ? (homeDebt.homeExpense / totals.expense) * 100 : 0}
-                  className="h-1 [&>div]:bg-destructive" />
-                <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                  <span>Debt</span><span className="tabular-nums">{fmt(homeDebt.debtExpense)}</span>
-                </div>
+              <div className="mt-2 space-y-1">
+                {groupSummary.map(({ group: g, expense }) => (
+                  <div key={g.id}>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-0.5">
+                      <span>{g.emoji} {g.label}</span><span className="tabular-nums">{fmt(expense)}</span>
+                    </div>
+                    <Progress value={totals.expense > 0 ? (expense / totals.expense) * 100 : 0}
+                      className="h-1 [&>div]:bg-destructive" />
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -404,66 +410,46 @@ export default function Reports() {
             </div>
           </div>
 
-          {/* ── Home vs Debt ───────────────────────────────────────────────── */}
+          {/* ── Group Split ─────────────────────────────────────────────── */}
           <div className="glass-card rounded-xl p-4">
-            <h2 className="text-sm font-semibold mb-4">Home vs Debt Split</h2>
-            <div className="rounded-xl bg-success/8 p-3 mb-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Home className="h-4 w-4 text-success" />
-                <span className="text-sm font-semibold text-success">Home</span>
-              </div>
-              <div className="space-y-1 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Income</span>
-                  <span className="font-medium text-success tabular-nums">+{fmt(homeDebt.homeIncome)}</span>
+            <h2 className="text-sm font-semibold mb-4">Group Split</h2>
+            {groupSummary.map(({ group: g, income, expense, balance }) => (
+              <div key={g.id} className="rounded-xl bg-muted/20 p-3 mb-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-base">{g.emoji}</span>
+                  <span className="text-sm font-semibold">{g.label}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Expense</span>
-                  <span className="font-medium text-destructive tabular-nums">-{fmt(homeDebt.homeExpense)}</span>
-                </div>
-                <div className="flex justify-between border-t border-border/40 pt-1 font-bold text-sm">
-                  <span>Balance</span>
-                  <span className={cn('tabular-nums', homeDebt.homeBalance >= 0 ? 'text-success' : 'text-destructive')}>
-                    {homeDebt.homeBalance >= 0 ? '+' : '-'}{fmt(homeDebt.homeBalance)}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="rounded-xl bg-warning/8 p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <CreditCard className="h-4 w-4 text-warning" />
-                <span className="text-sm font-semibold text-warning">Debt</span>
-              </div>
-              <div className="space-y-1 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Income</span>
-                  <span className="font-medium text-success tabular-nums">+{fmt(homeDebt.debtIncome)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Expense</span>
-                  <span className="font-medium text-destructive tabular-nums">-{fmt(homeDebt.debtExpense)}</span>
-                </div>
-                <div className="flex justify-between border-t border-border/40 pt-1 font-bold text-sm">
-                  <span>Balance</span>
-                  <span className={cn('tabular-nums', homeDebt.debtBalance >= 0 ? 'text-success' : 'text-destructive')}>
-                    {homeDebt.debtBalance >= 0 ? '+' : '-'}{fmt(homeDebt.debtBalance)}
-                  </span>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Income</span>
+                    <span className="font-medium text-success tabular-nums">+{fmt(income)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Expense</span>
+                    <span className="font-medium text-destructive tabular-nums">-{fmt(expense)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-border/40 pt-1 font-bold text-sm">
+                    <span>Balance</span>
+                    <span className={cn('tabular-nums', balance >= 0 ? 'text-success' : 'text-destructive')}>
+                      {balance >= 0 ? '+' : '-'}{fmt(balance)}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
+            ))}
             <div className="mt-3 pt-3 border-t border-border/50 space-y-1">
               <div className="flex justify-between text-sm font-bold">
                 <span>Total Income</span>
-                <span className="text-success tabular-nums">+{fmt(homeDebt.totalIncome)}</span>
+                <span className="text-success tabular-nums">+{fmt(totalIncome)}</span>
               </div>
               <div className="flex justify-between text-sm font-bold">
                 <span>Total Expense</span>
-                <span className="text-destructive tabular-nums">-{fmt(homeDebt.totalExpense)}</span>
+                <span className="text-destructive tabular-nums">-{fmt(totalExpense)}</span>
               </div>
               <div className="flex justify-between text-base font-bold text-primary pt-1 border-t border-border/50">
                 <span>Net Balance</span>
                 <span className="tabular-nums">
-                  {homeDebt.totalBalance >= 0 ? '+' : '-'}{fmt(homeDebt.totalBalance)}
+                  {totalIncome - totalExpense >= 0 ? '+' : '-'}{fmt(totalIncome - totalExpense)}
                 </span>
               </div>
             </div>
@@ -472,106 +458,124 @@ export default function Reports() {
           {/* ── Account Balances table ─────────────────────────────────────── */}
           <div className="glass-card rounded-xl p-4">
             <h2 className="text-sm font-semibold mb-0.5">Account Balances</h2>
-            <p className="text-[10px] text-muted-foreground mb-4 leading-relaxed">
+            <p className="text-[10px] text-muted-foreground mb-3 leading-relaxed">
               Tap <span className="font-medium text-foreground/60">Real Bal</span> to enter the actual physical
               amount — saves to cloud ☁️. <span className="font-medium">Diff = Real − System closing.</span>{' '}
               Totals appear once all accounts in the group have a real balance set.
             </p>
 
-            {/* Column headers */}
-            <div className={cn(
-              COL_GRID,
-              'text-[10px] font-semibold text-muted-foreground uppercase tracking-wider',
-              'border-b border-border/40 pb-2 mb-1 px-1',
-            )}>
-              <span>Account</span>
-              <span className="text-right">Opening</span>
-              <span className="text-right">Closing</span>
-              <span className="text-right">Real Bal</span>
-              <span className="text-right">Diff</span>
+            {/* Scroll hint for mobile */}
+            <div className="flex items-center gap-1 mb-2 sm:hidden">
+              <span className="text-[10px] text-muted-foreground italic">← Scroll to see all columns →</span>
             </div>
 
-            {/* ── CASH ── */}
-            <div className="mt-3 mb-1">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest px-1 mb-1">
-                Cash
-              </p>
-              <div className="space-y-0">
-                {cashAccounts.map(acc => {
-                  const bal = getAccBal(acc.id);
-                  return (
+            {/* Horizontally scrollable wrapper */}
+            <div className="overflow-x-auto -mx-4 px-4">
+              <div className="min-w-[400px]">
+
+                {/* Column headers */}
+                <div className={cn(
+                  COL_GRID,
+                  'text-[10px] font-semibold text-muted-foreground uppercase tracking-wider',
+                  'border-b border-border/40 pb-2 mb-1 px-1',
+                )}>
+                  <span>Account</span>
+                  <span className="text-right">Opening</span>
+                  <span className="text-right">Closing</span>
+                  <span className="text-right">Real Bal</span>
+                  <span className="text-right">Diff</span>
+                </div>
+
+                {/* ── CASH ── */}
+                <div className="mt-3 mb-1">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest px-1 mb-1">
+                    Cash
+                  </p>
+                  <div className="space-y-0">
+                    {cashAccounts.map(acc => {
+                      const bal = getAccBal(acc.id);
+                      return (
+                        <AccRow
+                          key={acc.id}
+                          accId={acc.id}
+                          label={acc.name}
+                          opening={bal.opening}
+                          closing={bal.closing}
+                        />
+                      );
+                    })}
+                    {cashAccounts.length === 0 && (
+                      <p className="text-xs text-muted-foreground px-1 py-2">No cash accounts configured.</p>
+                    )}
                     <AccRow
-                      key={acc.id}
-                      accId={acc.id}
-                      label={acc.name}
-                      opening={bal.opening}
-                      closing={bal.closing}
+                      label="Total Cash"
+                      opening={totalCashOpening}
+                      closing={totalCashClosing}
+                      bold
+                      realOverride={totalCashReal}
+                      diffOverride={
+                        totalCashReal !== undefined
+                          ? rc(totalCashReal - totalCashClosing)
+                          : undefined
+                      }
                     />
-                  );
-                })}
-                <AccRow
-                  label="Total Cash"
-                  opening={totalCashOpening}
-                  closing={totalCashClosing}
-                  bold
-                  realOverride={totalCashReal}
-                  diffOverride={
-                    totalCashReal !== undefined
-                      ? rc(totalCashReal - totalCashClosing)
-                      : undefined
-                  }
-                />
-              </div>
-            </div>
+                  </div>
+                </div>
 
-            {/* ── BANK / ONLINE ── */}
-            <div className="mt-4 mb-1">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest px-1 mb-1">
-                Bank / Online
-              </p>
-              <div className="space-y-0">
-                {bankAccounts.map(acc => {
-                  const bal = getAccBal(acc.id);
-                  return (
+                {/* ── BANK / ONLINE ── */}
+                <div className="mt-4 mb-1">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest px-1 mb-1">
+                    Bank / Online
+                  </p>
+                  <div className="space-y-0">
+                    {bankAccounts.map(acc => {
+                      const bal = getAccBal(acc.id);
+                      return (
+                        <AccRow
+                          key={acc.id}
+                          accId={acc.id}
+                          label={acc.name}
+                          opening={bal.opening}
+                          closing={bal.closing}
+                        />
+                      );
+                    })}
+                    {bankAccounts.length === 0 && (
+                      <p className="text-xs text-muted-foreground px-1 py-2">No bank accounts configured.</p>
+                    )}
                     <AccRow
-                      key={acc.id}
-                      accId={acc.id}
-                      label={acc.name}
-                      opening={bal.opening}
-                      closing={bal.closing}
+                      label="Total Bank"
+                      opening={totalOnlineOpening}
+                      closing={totalOnlineClosing}
+                      bold
+                      realOverride={totalBankReal}
+                      diffOverride={
+                        totalBankReal !== undefined
+                          ? rc(totalBankReal - totalOnlineClosing)
+                          : undefined
+                      }
                     />
-                  );
-                })}
-                <AccRow
-                  label="Total Bank"
-                  opening={totalOnlineOpening}
-                  closing={totalOnlineClosing}
-                  bold
-                  realOverride={totalBankReal}
-                  diffOverride={
-                    totalBankReal !== undefined
-                      ? rc(totalBankReal - totalOnlineClosing)
-                      : undefined
-                  }
-                />
-              </div>
-            </div>
+                  </div>
+                </div>
 
-            {/* ── OVERALL ── */}
-            <div className="mt-2">
-              <AccRow
-                label="Overall Total"
-                opening={overallOpening}
-                closing={overallClosing}
-                bold
-                realOverride={overallReal}
-                diffOverride={
-                  overallReal !== undefined
-                    ? rc(overallReal - overallClosing)
-                    : undefined
-                }
-              />
-            </div>
+                {/* ── OVERALL ── */}
+                <div className="mt-2">
+                  <AccRow
+                    label="Overall Total"
+                    opening={overallOpening}
+                    closing={overallClosing}
+                    bold
+                    realOverride={overallReal}
+                    diffOverride={
+                      overallReal !== undefined
+                        ? rc(overallReal - overallClosing)
+                        : undefined
+                    }
+                  />
+                </div>
+
+              </div>{/* end min-w wrapper */}
+            </div>{/* end overflow-x-auto */}
 
             {/* ── Missing / Extra Money summary ── */}
             {missingMoneyFromReal !== 0 && (

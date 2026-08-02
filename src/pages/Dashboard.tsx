@@ -1,21 +1,21 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
+import { useAppData } from '@/hooks/useAppData';
 import {
-  getTotalBalance, getOverspendCategories, getMonthTransactions,
-  getAccountBalance, getHomeDebtSummary,
+  getTotalBalance, getMonthTransactions,
+  getAccountBalance, getGroupSummary, getOverspendCategories,
 } from '@/lib/financial-store';
-import { getCashAccounts, getBankAccounts, MONTH_NAMES, ACCOUNTS } from '@/lib/types';
+import { MONTH_NAMES } from '@/lib/types';
 import MonthSelector from '@/components/MonthSelector';
 import TransactionForm from '@/components/TransactionForm';
 import { Progress } from '@/components/ui/progress';
 import {
   TrendingUp, TrendingDown, Wallet,
-  AlertTriangle, Home, CreditCard, AlertCircle, Landmark,
+  AlertTriangle, AlertCircle, Landmark,
   ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { detectFinancialIssues } from '@/lib/detectFinancialIssues';
-import { useState } from 'react';
 
 // ── Real balance diff (from Reports page localStorage) ───────────────────────
 const REAL_BAL_KEY = 'finance-real-balances';
@@ -26,28 +26,29 @@ function loadRealBalances(): Record<string, number> {
 
 export default function Dashboard() {
   const { state, selectedYear, selectedMonth, missingMoneyLog, logMissingMoney } = useFinance();
+  const { transactionGroups, accounts } = useAppData();
 
   const totals = getTotalBalance(
     state.transactions, selectedYear, selectedMonth,
     state.initialBalances, state.accountBalances,
   );
-  const overspend = getOverspendCategories(state.transactions, state.budgets, selectedYear, selectedMonth);
+  const expenseCats = (state.expenseSources ?? []).map(s => s.name);
+  const overspend = getOverspendCategories(state.transactions, state.budgets, selectedYear, selectedMonth, expenseCats);
   const topOverspend = overspend
     .filter(o => o.overspent)
     .sort((a, b) => (b.actual - b.budget) - (a.actual - a.budget))
     .slice(0, 5);
-  const homeDebt = getHomeDebtSummary(state.transactions, selectedYear, selectedMonth);
+  const groupSummary = getGroupSummary(state.transactions, selectedYear, selectedMonth, transactionGroups);
 
-  const cashAccounts = getCashAccounts();
-  const bankAccounts = getBankAccounts();
+  const cashAccounts = accounts.filter(a => a.type === 'cash');
+  const bankAccounts = accounts.filter(a => a.type === 'bank');
 
   const getAccBal = (id: string) =>
     getAccountBalance(state.transactions, id, selectedYear, selectedMonth, state.accountBalances);
 
-  // Opening balance = sum of all account opening balances for the selected month
-  const openingBalance = useMemo(() => {
-    return ACCOUNTS.reduce((sum, acc) => sum + getAccBal(acc.id).opening, 0);
-  }, [state.transactions, state.accountBalances, selectedYear, selectedMonth]);
+  const openingBalance = useMemo(() =>
+    accounts.reduce((sum, acc) => sum + getAccBal(acc.id).opening, 0),
+  [state.transactions, state.accountBalances, selectedYear, selectedMonth, accounts]);
 
   const totalCashClosing = cashAccounts.reduce((s, a) => s + getAccBal(a.id).closing, 0);
   const totalOnlineClosing = bankAccounts.reduce((s, a) => s + getAccBal(a.id).closing, 0);
@@ -60,7 +61,7 @@ export default function Dashboard() {
   const realBalances = useMemo(() => loadRealBalances(), []);
   const reportsMissingMoney = useMemo(() => {
     let total = 0;
-    for (const acc of ACCOUNTS) {
+    for (const acc of accounts) {
       const closing = getAccBal(acc.id).closing;
       const real = realBalances[acc.id];
       if (real !== undefined) {
@@ -176,68 +177,48 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Home vs Debt breakdown */}
+      {/* Group breakdown */}
       <div className="glass-card rounded-xl p-4">
         <h2 className="text-sm font-semibold text-foreground mb-3">Monthly Breakdown</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-xl bg-success/8 p-3">
-            <div className="flex items-center gap-1.5 mb-2">
-              <Home className="h-3.5 w-3.5 text-success" />
-              <span className="text-xs font-semibold text-success">Home</span>
-            </div>
-            <div className="space-y-1 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Income</span>
-                <span className="text-success font-medium">+{fmt(homeDebt.homeIncome)}</span>
+        <div className={`grid gap-3 ${groupSummary.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+          {groupSummary.map(({ group: g, income, expense, balance }) => (
+            <div key={g.id} className="rounded-xl bg-muted/20 p-3">
+              <div className="flex items-center gap-1.5 mb-2">
+                <span className="text-sm">{g.emoji}</span>
+                <span className="text-xs font-semibold">{g.label}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Expense</span>
-                <span className="text-destructive font-medium">-{fmt(homeDebt.homeExpense)}</span>
-              </div>
-              <div className="flex justify-between border-t border-border/30 pt-1 font-bold">
-                <span>Balance</span>
-                <span className={homeDebt.homeBalance >= 0 ? 'text-success' : 'text-destructive'}>
-                  {homeDebt.homeBalance >= 0 ? '+' : '-'}{fmt(homeDebt.homeBalance)}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="rounded-xl bg-warning/8 p-3">
-            <div className="flex items-center gap-1.5 mb-2">
-              <CreditCard className="h-3.5 w-3.5 text-warning" />
-              <span className="text-xs font-semibold text-warning">Debt</span>
-            </div>
-            <div className="space-y-1 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Income</span>
-                <span className="text-success font-medium">+{fmt(homeDebt.debtIncome)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Expense</span>
-                <span className="text-destructive font-medium">-{fmt(homeDebt.debtExpense)}</span>
-              </div>
-              <div className="flex justify-between border-t border-border/30 pt-1 font-bold">
-                <span>Balance</span>
-                <span className={homeDebt.debtBalance >= 0 ? 'text-success' : 'text-destructive'}>
-                  {homeDebt.debtBalance >= 0 ? '+' : '-'}{fmt(homeDebt.debtBalance)}
-                </span>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Income</span>
+                  <span className="text-success font-medium">+{fmt(income)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Expense</span>
+                  <span className="text-destructive font-medium">-{fmt(expense)}</span>
+                </div>
+                <div className="flex justify-between border-t border-border/30 pt-1 font-bold">
+                  <span>Balance</span>
+                  <span className={balance >= 0 ? 'text-success' : 'text-destructive'}>
+                    {balance >= 0 ? '+' : '-'}{fmt(balance)}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          ))}
         </div>
         <div className="mt-3 pt-3 border-t border-border/40 grid grid-cols-3 gap-2 text-xs text-center">
           <div>
             <p className="text-muted-foreground mb-0.5">Total Income</p>
-            <p className="font-bold text-success">{fmt(homeDebt.totalIncome)}</p>
+            <p className="font-bold text-success">{fmt(groupSummary.reduce((s, g) => s + g.income, 0))}</p>
           </div>
           <div>
             <p className="text-muted-foreground mb-0.5">Total Expense</p>
-            <p className="font-bold text-destructive">{fmt(homeDebt.totalExpense)}</p>
+            <p className="font-bold text-destructive">{fmt(groupSummary.reduce((s, g) => s + g.expense, 0))}</p>
           </div>
           <div>
             <p className="text-muted-foreground mb-0.5">Net</p>
-            <p className={cn('font-bold', homeDebt.totalBalance >= 0 ? 'text-success' : 'text-destructive')}>
-              {homeDebt.totalBalance >= 0 ? '+' : '-'}{fmt(homeDebt.totalBalance)}
+            <p className={cn('font-bold', totals.savings >= 0 ? 'text-success' : 'text-destructive')}>
+              {totals.savings >= 0 ? '+' : '-'}{fmt(totals.savings)}
             </p>
           </div>
         </div>
