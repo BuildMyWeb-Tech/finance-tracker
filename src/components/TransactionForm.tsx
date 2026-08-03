@@ -1,7 +1,11 @@
 import { useState, useRef } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
 import { useAppData } from '@/hooks/useAppData';
-import { TransactionType, PaymentMode, Person, HomeOrDebt } from '@/lib/types';
+import {
+  PERSONS, HOME_INCOME_CATEGORIES, DEBT_INCOME_CATEGORIES,
+  EXPENSE_CATEGORIES, DEBT_EXPENSE_CATEGORIES, ACCOUNTS,
+  TransactionType, PaymentMode, Person, HomeOrDebt,
+} from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -198,7 +202,7 @@ type FormTab = 'manual' | 'image';
 
 export default function TransactionForm({ onSuccess }: { onSuccess?: () => void }) {
   const { addTransaction } = useFinance();
-  const { persons, getCategoriesFor, getAccountsForPerson, accounts, transactionGroups, allCategories } = useAppData();
+  const { persons, getCategoriesFor, getAccountsForPerson, accounts, transactionGroups } = useAppData();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<FormTab>('manual');
   const today = new Date().toISOString().split('T')[0];
@@ -218,7 +222,10 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
     homeOrDebt: transactionGroups[0]?.id ?? 'home',
   });
 
-  const categories = getCategoriesFor(form.type as 'income' | 'expense' | 'transfer', form.homeOrDebt);
+  const categories = getCategoriesFor(
+    form.type as 'income' | 'expense' | 'transfer',
+    form.homeOrDebt,
+  );
   const personAccounts = form.person ? getAccountsForPerson(form.person) : [];
   const transferToPersons = persons;
   const transferToAccounts = form.transferTo
@@ -227,15 +234,13 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
       : accounts.filter(a => a.person === form.transferTo)
     : [];
 
-  const handleParsedBill = (result: ParsedBill) => {
+    const handleParsedBill = (result: ParsedBill) => {
     setForm(f => ({
       ...f,
       amount: result.amount ? String(result.amount) : f.amount,
       date: result.date || f.date,
       notes: result.notes || f.notes,
-      category: result.category && allCategories.includes(result.category)
-        ? result.category
-        : f.category,
+      category: result.category && categories.includes(result.category) ? result.category : f.category,
     }));
     if (result.amount) toast.success(`₹${result.amount.toLocaleString('en-IN')} detected!`);
   };
@@ -320,10 +325,11 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
             ))}
           </div>
 
-          {/* Home / Debt */}
-          <div className="grid grid-cols-2 gap-2">
+          {/* Group buttons — dynamic from Settings */}
+          <div className="flex flex-wrap gap-2">
             {transactionGroups.map(g => (
-              <Button key={g.id} variant={form.homeOrDebt === g.id ? 'default' : 'outline'} size="sm"
+              <Button key={g.id} size="sm"
+                variant={form.homeOrDebt === g.id ? 'default' : 'outline'}
                 onClick={() => setForm(f => ({ ...f, homeOrDebt: g.id, category: '' }))}>
                 {g.emoji} {g.label}
               </Button>
@@ -343,29 +349,63 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
             </div>
           </div>
 
-          <div>
-            <Label>Expected Amount (₹)</Label>
-            <Input type="number" placeholder="Optional" value={form.expectedAmount}
-              onChange={e => setForm(f => ({ ...f, expectedAmount: e.target.value }))} />
-          </div>
-
-          {/* Person */}
+          {/* Person — radio if ≤3, dropdown if >3 */}
           <div>
             <Label>Person</Label>
-            <Select value={form.person} onValueChange={v => setForm(f => ({ ...f, person: v, accountId: '', transferTo: '', transferToAccountId: '' }))}>
-              <SelectTrigger><SelectValue placeholder="Select person" /></SelectTrigger>
-              <SelectContent>{persons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
-            </Select>
+            {persons.length <= 3 ? (
+              <div className="flex flex-wrap gap-2 mt-1.5">
+                {persons.map(p => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, person: p, accountId: '', transferTo: '', transferToAccountId: '' }))}
+                    className={cn(
+                      'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                      form.person === p
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-muted/30 text-muted-foreground border-border hover:border-primary/50',
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <Select value={form.person} onValueChange={v => setForm(f => ({ ...f, person: v, accountId: '', transferTo: '', transferToAccountId: '' }))}>
+                <SelectTrigger><SelectValue placeholder="Select person" /></SelectTrigger>
+                <SelectContent>{persons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+              </Select>
+            )}
           </div>
 
-          {/* From Account */}
+          {/* From Account — radio if ≤3, dropdown if >3 */}
           {form.person && personAccounts.length > 0 && (
             <div>
               <Label>Account</Label>
-              <Select value={form.accountId} onValueChange={v => setForm(f => ({ ...f, accountId: v, transferToAccountId: '' }))}>
-                <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
-                <SelectContent>{personAccounts.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent>
-              </Select>
+              {personAccounts.length <= 3 ? (
+                <div className="flex flex-wrap gap-2 mt-1.5">
+                  {personAccounts.map(a => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, accountId: a.id, transferToAccountId: '' }))}
+                      className={cn(
+                        'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                        form.accountId === a.id
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-muted/30 text-muted-foreground border-border hover:border-primary/50',
+                      )}
+                    >
+                      {a.type === 'cash' ? '💵' : '🏦'} {a.name}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <Select value={form.accountId} onValueChange={v => setForm(f => ({ ...f, accountId: v, transferToAccountId: '' }))}>
+                  <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
+                  <SelectContent>{personAccounts.map(a => <SelectItem key={a.id} value={a.id}>{a.type === 'cash' ? '💵' : '🏦'} {a.name}</SelectItem>)}</SelectContent>
+                </Select>
+              )}
             </div>
           )}
 
@@ -374,20 +414,58 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
             <>
               <div>
                 <Label>Transfer To Person</Label>
-                <Select value={form.transferTo} onValueChange={v => setForm(f => ({ ...f, transferTo: v, transferToAccountId: '' }))}>
-                  <SelectTrigger><SelectValue placeholder="Select recipient" /></SelectTrigger>
-                  <SelectContent>
-                    {transferToPersons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                {transferToPersons.length <= 3 ? (
+                  <div className="flex flex-wrap gap-2 mt-1.5">
+                    {transferToPersons.map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, transferTo: p, transferToAccountId: '' }))}
+                        className={cn(
+                          'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                          form.transferTo === p
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-muted/30 text-muted-foreground border-border hover:border-primary/50',
+                        )}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <Select value={form.transferTo} onValueChange={v => setForm(f => ({ ...f, transferTo: v, transferToAccountId: '' }))}>
+                    <SelectTrigger><SelectValue placeholder="Select recipient" /></SelectTrigger>
+                    <SelectContent>{transferToPersons.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                  </Select>
+                )}
               </div>
               {form.transferTo && transferToAccounts.length > 0 && (
                 <div>
                   <Label>To Account</Label>
-                  <Select value={form.transferToAccountId} onValueChange={v => setForm(f => ({ ...f, transferToAccountId: v }))}>
-                    <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
-                    <SelectContent>{transferToAccounts.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent>
-                  </Select>
+                  {transferToAccounts.length <= 3 ? (
+                    <div className="flex flex-wrap gap-2 mt-1.5">
+                      {transferToAccounts.map(a => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => setForm(f => ({ ...f, transferToAccountId: a.id }))}
+                          className={cn(
+                            'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                            form.transferToAccountId === a.id
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-muted/30 text-muted-foreground border-border hover:border-primary/50',
+                          )}
+                        >
+                          {a.type === 'cash' ? '💵' : '🏦'} {a.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <Select value={form.transferToAccountId} onValueChange={v => setForm(f => ({ ...f, transferToAccountId: v }))}>
+                      <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
+                      <SelectContent>{transferToAccounts.map(a => <SelectItem key={a.id} value={a.id}>{a.type === 'cash' ? '💵' : '🏦'} {a.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  )}
                 </div>
               )}
             </>
@@ -405,7 +483,7 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
                 <SelectTrigger className={tab === 'image' && form.category ? 'border-success/50 bg-success/5' : ''}>
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
-                <SelectContent>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                <SelectContent>{categories.length === 0 ? <SelectItem value='__none__' disabled>Add categories in Settings</SelectItem> : categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           )}

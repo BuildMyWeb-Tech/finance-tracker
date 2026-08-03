@@ -16,7 +16,7 @@ const navItems = [
   { to: '/budget',       icon: PieChart,        label: 'Expenses'},
   // { to: '/bulk-upload',  icon: ScanLine,        label: 'Upload'  },
   { to: '/reports',      icon: BarChart3,       label: 'Reports' },
-  { to: '/persons',      icon: Users,           label: 'Persons' },
+  // { to: '/persons',      icon: Users,           label: 'Persons' },
   { to: '/settings',     icon: Settings,        label: 'Settings'},
 ];
 

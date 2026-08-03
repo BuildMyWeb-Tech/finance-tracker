@@ -384,22 +384,13 @@ export function getTotalBalance(
   // ── Opening balance ────────────────────────────────────────────────────────
   let opening = 0;
 
-  if (accountBalances) {
-    // Sum all account opening balances
-    for (const acc of ACCOUNTS) {
-      opening = rc(opening + (accountBalances[acc.id] || 0));
-    }
-    // FIX: Only add initialBalances for persons who have NO accounts configured.
-    // Persons with accounts should NOT also add their initialBalance
-    // (that would double-count their starting money).
-    for (const person of PERSONS) {
-      const hasAccounts = ACCOUNTS.some(a => a.person === person);
-      if (!hasAccounts) {
-        opening = rc(opening + (initialBalances[person] || 0));
-      }
+  if (accountBalances && Object.keys(accountBalances).length > 0) {
+    // Use accountBalances keys directly — fully dynamic, no hardcoded ACCOUNTS
+    for (const amount of Object.values(accountBalances)) {
+      opening = rc(opening + (amount || 0));
     }
   } else {
-    // No account system — use legacy person balances only
+    // Fallback: sum person-level initialBalances if no accounts configured
     opening = rc(Object.values(initialBalances).reduce((s, v) => rc(s + v), 0));
   }
 
@@ -485,12 +476,8 @@ export function getMissingMoney(
 ) {
   const totals = getTotalBalance(txns, year, month, initialBalances, accountBalances);
   let accountTotal = 0;
-  for (const acc of ACCOUNTS) {
-    accountTotal = rc(accountTotal + getAccountBalance(txns, acc.id, year, month, accountBalances).closing);
-  }
-  for (const p of PERSONS) {
-    const legacyBal = getPersonBalance(txns.filter(t => !t.accountId), p, year, month, initialBalances);
-    accountTotal = rc(accountTotal + legacyBal.closing);
+  for (const accId of Object.keys(accountBalances)) {
+    accountTotal = rc(accountTotal + getAccountBalance(txns, accId, year, month, accountBalances).closing);
   }
   return {
     expectedClosing: totals.closing,
