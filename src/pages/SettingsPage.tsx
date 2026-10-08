@@ -10,7 +10,9 @@
 
 import { useState } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Account, IncomeSource, ExpenseSource, TransactionGroup } from '@/lib/types';
+import { loadLocalState } from '@/lib/supabase-store';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -27,7 +29,7 @@ import { toast } from 'sonner';
 import {
   Plus, Trash2, Pencil, Check, X,
   ChevronDown, ChevronUp, Wallet, TrendingUp,
-  TrendingDown, IndianRupee, Users,
+  TrendingDown, IndianRupee, Users, CloudUpload, RefreshCw, Loader2,
 } from 'lucide-react';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -149,7 +151,48 @@ export default function SettingsPage() {
     setCustomAccounts,
     setCustomPersons,
     setTransactionGroups,
+    migrateData,
+    refreshFromCloud,
   } = useFinance();
+  const { currentUser } = useAuth();
+
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');
+  const [syncMessage, setSyncMessage] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleSyncLocal = async () => {
+    setSyncStatus('syncing');
+    setSyncMessage('');
+    try {
+      // Find transactions in localStorage not yet in DB
+      const local = loadLocalState(currentUser || 'guest');
+      const dbIds = new Set(state.transactions.map(t => t.id));
+      const missing = local.transactions.filter(t => !dbIds.has(t.id));
+      if (missing.length === 0) {
+        setSyncStatus('done');
+        setSyncMessage('Everything is already in sync — no missing transactions found.');
+        return;
+      }
+      const result = await migrateData();
+      if (result.success) {
+        setSyncStatus('done');
+        setSyncMessage(`✅ Pushed ${missing.length} missing transaction${missing.length !== 1 ? 's' : ''} to cloud.`);
+      } else {
+        setSyncStatus('error');
+        setSyncMessage('❌ Sync failed: ' + result.message);
+      }
+    } catch (err: any) {
+      setSyncStatus('error');
+      setSyncMessage('❌ ' + (err?.message || 'Unknown error'));
+    }
+  };
+
+  const handleRefreshCloud = async () => {
+    setRefreshing(true);
+    await refreshFromCloud();
+    setRefreshing(false);
+    toast.success('Refreshed from cloud');
+  };
 
   const persons: string[]  = state.customPersons  ?? [];
   const accounts: Account[] = state.customAccounts ?? [];
@@ -755,6 +798,66 @@ export default function SettingsPage() {
             </div>
             <Button onClick={addExpenseSource} className="w-full" size="sm">
               <Plus className="h-3.5 w-3.5 mr-1" /> Add Expense Source
+            </Button>
+          </div>
+        </div>
+      </Section>
+
+      {/* ── SECTION: DATA SYNC ──────────────────────────────────────────────── */}
+      <Section
+        title="Data Sync"
+        icon={<CloudUpload className="h-4 w-4 text-primary" />}
+      >
+        <div className="space-y-3 mt-2">
+          <p className="text-xs text-muted-foreground">
+            If you entered transactions while offline or when the cloud DB was paused,
+            use <strong>Sync Local → Cloud</strong> to push any missing data up.
+            Use <strong>Refresh from Cloud</strong> to pull the latest data from Supabase.
+          </p>
+
+          <div className="rounded-lg bg-muted/20 border border-border/30 p-3 space-y-1 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Transactions in cloud</span>
+              <span className="font-semibold">{state.transactions.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Transactions in local storage</span>
+              <span className="font-semibold">
+                {(() => { try { const l = loadLocalState(currentUser || 'guest'); return l.transactions.length; } catch { return 0; } })()}
+              </span>
+            </div>
+          </div>
+
+          {syncMessage && (
+            <p className={`text-xs px-3 py-2 rounded-lg ${syncStatus === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-success/10 text-success'}`}>
+              {syncMessage}
+            </p>
+          )}
+
+          <div className="flex gap-2">
+            <Button
+              onClick={handleSyncLocal}
+              disabled={syncStatus === 'syncing'}
+              className="flex-1 gap-1.5"
+              size="sm"
+            >
+              {syncStatus === 'syncing'
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <CloudUpload className="h-3.5 w-3.5" />}
+              Sync Local → Cloud
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={handleRefreshCloud}
+              disabled={refreshing}
+              className="flex-1 gap-1.5"
+              size="sm"
+            >
+              {refreshing
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <RefreshCw className="h-3.5 w-3.5" />}
+              Refresh from Cloud
             </Button>
           </div>
         </div>
