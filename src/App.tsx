@@ -10,6 +10,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { FinanceProvider, useFinance } from "@/contexts/FinanceContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { useEffect, useRef, useState } from "react";
 import BottomNav from "@/components/BottomNav";
 import PWAInstallPrompt from "@/components/PWAInstallPrompt";
 import PWAUpdateToast from "@/components/PWAUpdateToast";
@@ -61,22 +62,90 @@ function LoadingScreen() {
 }
 
 function SyncIndicator() {
-  const { isSyncing } = useFinance();
-  if (!isSyncing) return null;
+  const { isSyncing, syncTarget } = useFinance();
+  const visible = isSyncing || syncTarget !== null;
+  if (!visible) return null;
+
+  const isLocal = syncTarget === 'local';
+  const isDone  = !isSyncing && syncTarget !== null;
+  const color   = isLocal ? '#f59e0b' : '#4CAF73';
+  const label   = isSyncing
+    ? 'Saving…'
+    : isLocal
+      ? '⚠ Saved locally (offline)'
+      : '✓ Saved to cloud';
+
   return (
     <div style={{
       position: 'fixed', top: '12px', right: '12px', zIndex: 9999,
-      background: 'rgba(26,31,22,0.9)',
-      border: '1px solid rgba(201,168,76,0.3)',
+      background: 'rgba(26,31,22,0.92)',
+      border: `1px solid ${color}55`,
       borderRadius: '20px', padding: '4px 10px',
       display: 'flex', alignItems: 'center', gap: '6px',
-      fontSize: '11px', color: '#C9A84C',
+      fontSize: '11px', color,
       fontFamily: '"DM Sans", sans-serif',
       backdropFilter: 'blur(8px)',
+      transition: 'opacity 0.3s',
     }}>
-      <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#C9A84C', animation: 'pulse 1s infinite' }} />
-      Saving…
+      {isSyncing
+        ? <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: color, animation: 'pulse 1s infinite' }} />
+        : null}
+      {label}
       <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
+    </div>
+  );
+}
+
+function PullToRefresh() {
+  const { refreshFromCloud } = useFinance();
+  const startY = useRef(0);
+  const [pulling, setPulling] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const THRESHOLD = 80;
+
+  useEffect(() => {
+    const onTouchStart = (e: TouchEvent) => {
+      if (window.scrollY === 0) startY.current = e.touches[0].clientY;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!startY.current) return;
+      const delta = e.touches[0].clientY - startY.current;
+      if (delta > 20 && window.scrollY === 0) setPulling(true);
+      else setPulling(false);
+    };
+    const onTouchEnd = async (e: TouchEvent) => {
+      const delta = e.changedTouches[0].clientY - startY.current;
+      startY.current = 0;
+      setPulling(false);
+      if (delta >= THRESHOLD && window.scrollY === 0) {
+        setRefreshing(true);
+        await refreshFromCloud();
+        setRefreshing(false);
+      }
+    };
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [refreshFromCloud]);
+
+  if (!pulling && !refreshing) return null;
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9998,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '10px', background: 'rgba(26,31,22,0.9)',
+      fontSize: '12px', color: '#C9A84C', gap: '8px',
+      fontFamily: '"DM Sans", sans-serif',
+    }}>
+      {refreshing
+        ? <><div style={{ width: '14px', height: '14px', border: '2px solid #C9A84C44', borderTopColor: '#C9A84C', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /> Loading from cloud…</>
+        : '↓ Release to refresh'}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
@@ -88,6 +157,7 @@ function AppContent() {
   return (
     <BrowserRouter>
       <SyncIndicator />
+      <PullToRefresh />
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/transactions" element={<Transactions />} />

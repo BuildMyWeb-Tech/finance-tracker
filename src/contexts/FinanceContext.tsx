@@ -24,6 +24,7 @@ interface FinanceContextType {
   state: FinancialState;
   isLoading: boolean;
   isSyncing: boolean;
+  syncTarget: 'db' | 'local' | null;
   addTransaction: (txn: Omit<Transaction, 'id'>) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
   updateTransaction: (txn: Transaction) => Promise<void>;
@@ -72,6 +73,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<FinancialState>(() => loadLocalState(userId));
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncTarget, setSyncTarget] = useState<'db' | 'local' | null>(null);
   const [missingMoneyLog, setMissingMoneyLog] = useState<MissingMoneyEntry[]>(loadMissingLog);
 
   const now = new Date();
@@ -99,16 +101,28 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const addTransaction = useCallback(async (txn: Omit<Transaction, 'id'>) => {
     const newTxn: Transaction = normalizeTransaction({ ...txn, id: generateId() });
     setState(s => ({ ...s, transactions: [...s.transactions, newTxn] }));
-    setIsSyncing(true);
-    await saveTransaction(newTxn, userId);
+    setIsSyncing(true); setSyncTarget(null);
+    try {
+      await saveTransaction(newTxn, userId);
+      setSyncTarget('db');
+    } catch {
+      setSyncTarget('local');
+    }
     setIsSyncing(false);
+    setTimeout(() => setSyncTarget(null), 3000);
   }, [userId]);
 
   const deleteTransaction = useCallback(async (id: string) => {
     setState(s => ({ ...s, transactions: s.transactions.filter(t => t.id !== id) }));
-    setIsSyncing(true);
-    await deleteTransactionFromDB(id, userId);
+    setIsSyncing(true); setSyncTarget(null);
+    try {
+      await deleteTransactionFromDB(id, userId);
+      setSyncTarget('db');
+    } catch {
+      setSyncTarget('local');
+    }
     setIsSyncing(false);
+    setTimeout(() => setSyncTarget(null), 3000);
   }, [userId]);
 
   const updateTransaction = useCallback(async (txn: Transaction) => {
@@ -117,9 +131,15 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       ...s,
       transactions: s.transactions.map(t => t.id === normalized.id ? normalized : t),
     }));
-    setIsSyncing(true);
-    await saveTransaction(normalized, userId);
+    setIsSyncing(true); setSyncTarget(null);
+    try {
+      await saveTransaction(normalized, userId);
+      setSyncTarget('db');
+    } catch {
+      setSyncTarget('local');
+    }
     setIsSyncing(false);
+    setTimeout(() => setSyncTarget(null), 3000);
   }, [userId]);
 
   // ─── BUDGETS ───────────────────────────────────────────────────────────────
@@ -254,7 +274,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <FinanceContext.Provider value={{
-      state, isLoading, isSyncing,
+      state, isLoading, isSyncing, syncTarget,
       addTransaction, deleteTransaction, updateTransaction,
       setBudget, addRecurring, deleteRecurring,
       setInitialBalance, setAccountBalance, setAccountBalances,

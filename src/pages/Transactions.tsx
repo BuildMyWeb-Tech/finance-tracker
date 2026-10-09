@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
 import { useAppData } from '@/hooks/useAppData';
 import { getMonthTransactions } from '@/lib/financial-store';
@@ -25,6 +25,8 @@ const PAGE_SIZE = 50;
 
 // ─── Edit/Copy Dialog ──────────────────────────────────────────────────────────
 
+const COPY_DATE_MODE_KEY = 'txn_copy_date_mode';
+
 function TxnDialog({ open, onClose, initial, mode, onSave }: {
   open: boolean;
   onClose: () => void;
@@ -34,7 +36,27 @@ function TxnDialog({ open, onClose, initial, mode, onSave }: {
 }) {
   const { state } = useFinance();
   const { persons, accounts, getAccountsForPerson, getCategoriesFor, transactionGroups } = useAppData();
-  const [form, setForm] = useState<Partial<Transaction>>({ ...initial });
+  const today = new Date().toISOString().split('T')[0];
+
+  // Persist copy date mode across sessions
+  const [copyDateMode, setCopyDateMode] = useState<'same' | 'today' | 'custom'>(() => {
+    try { return (localStorage.getItem(COPY_DATE_MODE_KEY) as any) || 'same'; } catch { return 'same'; }
+  });
+  const updateCopyDateMode = (m: 'same' | 'today' | 'custom') => {
+    setCopyDateMode(m);
+    try { localStorage.setItem(COPY_DATE_MODE_KEY, m); } catch {}
+    if (m === 'same') setForm(f => ({ ...f, date: initial.date }));
+    else if (m === 'today') setForm(f => ({ ...f, date: today }));
+  };
+
+  const [form, setForm] = useState<Partial<Transaction>>(() => {
+    if (mode === 'copy') {
+      const stored = (() => { try { return localStorage.getItem(COPY_DATE_MODE_KEY) as any || 'same'; } catch { return 'same'; } })();
+      const date = stored === 'today' ? today : initial.date;
+      return { ...initial, date };
+    }
+    return { ...initial };
+  });
 
   const cats = getCategoriesFor(
     (form.type as 'income' | 'expense' | 'transfer') || 'expense',
@@ -91,12 +113,30 @@ function TxnDialog({ open, onClose, initial, mode, onSave }: {
               ))}
             </div>
           </div>
+          {/* Copy date mode picker */}
+          {mode === 'copy' && (
+            <div>
+              <Label className="text-xs">Copy Date</Label>
+              <div className="grid grid-cols-3 gap-1.5 mt-1">
+                {(['same', 'today', 'custom'] as const).map(m => (
+                  <Button key={m} size="sm"
+                    variant={copyDateMode === m ? 'default' : 'outline'}
+                    className="text-xs capitalize"
+                    onClick={() => updateCopyDateMode(m)}>
+                    {m === 'same' ? `Same (${initial.date.slice(5)})` : m === 'today' ? `Today (${today.slice(5)})` : 'Custom'}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Date + Amount */}
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label className="text-xs">Date</Label>
               <Input type="date" value={form.date}
-                onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="mt-1" />
+                onChange={e => { setForm(f => ({ ...f, date: e.target.value })); if (mode === 'copy') updateCopyDateMode('custom'); }}
+                className="mt-1" />
             </div>
             <div>
               <Label className="text-xs">Amount (₹)</Label>

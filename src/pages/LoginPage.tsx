@@ -166,36 +166,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Quick logins — only on login tab */}
-        {tab === 'login' && (
-          <>
-            <div style={{ ...s.divider, margin: '18px 0 0' }}>
-              <div style={s.dividerLine} />
-              <span style={s.dividerText}>Quick Login</span>
-              <div style={s.dividerLine} />
-            </div>
-            <div style={s.quickRow}>
-              {[
-                { id: 'ajai', label: 'Ajai', color: '#4CAF73' },
-                { id: 'appa', label: 'Appa', color: '#C9A84C' },
-                { id: 'amma', label: 'Amma', color: '#a78bfa' },
-                { id: 'mauli', label: 'Mauli', color: '#f472b6' },
-              ].map(u => (
-                <button
-                  key={u.id}
-                  onClick={() => quickLogin(u.id, `${u.id}123`)}
-                  disabled={loading}
-                  style={{ ...s.quickBtn, borderColor: `${u.color}44`, color: u.color }}
-                >
-                  <span style={{ ...s.quickAvatar, background: `${u.color}22`, border: `1px solid ${u.color}44`, color: u.color }}>
-                    {u.label[0]}
-                  </span>
-                  {u.label}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
       </div>
 
       <style>{`
