@@ -374,14 +374,45 @@ export default function LedgerPage() {
           config={config}
           setConfig={setConfig}
           allCategories={Array.from(new Set(state.transactions.map(t => t.category))).sort()}
-          allPersons={Array.from(new Set(state.transactions.map(t => t.person))).sort()}
+          allPersons={
+            state.customPersons?.length
+              ? state.customPersons
+              : Array.from(new Set(state.transactions.map(t => t.person))).sort()
+          }
+          incomeSources={state.incomeSources ?? []}
+          expenseSources={state.expenseSources ?? []}
+          initialBalances={state.initialBalances ?? {}}
+          accountBalances={state.accountBalances ?? {}}
           year={year}
           onClose={() => setShowConfig(false)}
         />
       )}
 
       {config.incomeRows.length === 0 && config.expenseRows.length === 0 ? (
-        <EmptyState onConfigure={() => setShowConfig(true)} />
+        <EmptyState
+          onConfigure={() => setShowConfig(true)}
+          hasSettings={(state.incomeSources?.length ?? 0) > 0 || (state.expenseSources?.length ?? 0) > 0}
+          onAutoFill={() => {
+            const incomeSources = state.incomeSources ?? [];
+            const expenseSources = state.expenseSources ?? [];
+            const initialBalances = state.initialBalances ?? {};
+            const accountBalances = state.accountBalances ?? {};
+            const newIncomeRows: LedgerRow[] = incomeSources.map(s => ({ id: makeId(), label: s.name, category: s.name, type: 'income' as const }));
+            const newExpenseRows: LedgerRow[] = expenseSources.map(s => ({ id: makeId(), label: s.name, category: s.name, type: 'expense' as const }));
+            const totalInitial = Object.values(initialBalances).reduce((s, v) => s + (Number(v) || 0), 0);
+            const totalAccounts = Object.values(accountBalances).reduce((s, v) => s + (Number(v) || 0), 0);
+            const total = totalInitial + totalAccounts;
+            const updated: LedgerConfig = {
+              ...config,
+              incomeRows: newIncomeRows,
+              expenseRows: newExpenseRows,
+              openingBalance: total > 0 ? total : config.openingBalance,
+              openingYear: year,
+            };
+            setConfig(updated);
+            toast.success(`Auto-filled ${newIncomeRows.length} income + ${newExpenseRows.length} expense rows`);
+          }}
+        />
       ) : (
         <div ref={tableRef} className="overflow-x-auto rounded-xl border border-border/40 bg-card shadow-sm">
           <table className="w-full border-collapse text-xs min-w-max">
@@ -535,17 +566,23 @@ function TotalRow({ label, values, className }: { label: string; values: number[
   );
 }
 
-function EmptyState({ onConfigure }: { onConfigure: () => void }) {
+function EmptyState({ onConfigure, onAutoFill, hasSettings }: { onConfigure: () => void; onAutoFill: () => void; hasSettings: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
       <div className="text-4xl">📊</div>
       <p className="text-sm text-muted-foreground max-w-xs">
         Set up your ledger rows to see income and expense totals across months.
-        Import your existing Excel to auto-configure.
       </p>
-      <Button onClick={onConfigure} className="gap-2">
-        <Settings2 className="h-4 w-4" /> Configure Ledger
-      </Button>
+      <div className="flex flex-col gap-2 items-center">
+        {hasSettings && (
+          <Button onClick={onAutoFill} className="gap-2">
+            ✨ Auto-fill from Settings
+          </Button>
+        )}
+        <Button variant="outline" onClick={onConfigure} className="gap-2">
+          <Settings2 className="h-4 w-4" /> Manual Configure
+        </Button>
+      </div>
     </div>
   );
 }
@@ -553,12 +590,17 @@ function EmptyState({ onConfigure }: { onConfigure: () => void }) {
 // ─── Config Panel ─────────────────────────────────────────────────────────────
 
 function ConfigPanel({
-  config, setConfig, allCategories, allPersons, year, onClose,
+  config, setConfig, allCategories, allPersons, incomeSources, expenseSources,
+  initialBalances, accountBalances, year, onClose,
 }: {
   config: LedgerConfig;
   setConfig: (c: LedgerConfig) => void;
   allCategories: string[];
   allPersons: string[];
+  incomeSources: { id: string; name: string }[];
+  expenseSources: { id: string; name: string }[];
+  initialBalances: Record<string, number>;
+  accountBalances: Record<string, number>;
   year: number;
   onClose: () => void;
 }) {
@@ -566,6 +608,40 @@ function ConfigPanel({
   const [newExpenseCat, setNewExpenseCat] = useState('');
   const [openingVal, setOpeningVal] = useState(String(config.openingBalance));
   const [openingMonth, setOpeningMonth] = useState(config.openingMonth);
+
+  const handleAutoFill = () => {
+    // Build income rows from incomeSources (de-dup against existing)
+    const existingIncomeCats = new Set(config.incomeRows.map(r => r.category));
+    const newIncomeRows: LedgerRow[] = incomeSources
+      .filter(s => !existingIncomeCats.has(s.name))
+      .map(s => ({ id: makeId(), label: s.name, category: s.name, type: 'income' as const }));
+
+    // Build expense rows from expenseSources (de-dup against existing)
+    const existingExpenseCats = new Set(config.expenseRows.map(r => r.category));
+    const newExpenseRows: LedgerRow[] = expenseSources
+      .filter(s => !existingExpenseCats.has(s.name))
+      .map(s => ({ id: makeId(), label: s.name, category: s.name, type: 'expense' as const }));
+
+    // Opening balance = sum of all initialBalances (person cash totals)
+    const totalInitial = Object.values(initialBalances).reduce((s, v) => s + (Number(v) || 0), 0);
+    // Add account balances if set
+    const totalAccounts = Object.values(accountBalances).reduce((s, v) => s + (Number(v) || 0), 0);
+    const total = totalInitial + totalAccounts;
+
+    const updated: LedgerConfig = {
+      ...config,
+      incomeRows: [...config.incomeRows, ...newIncomeRows],
+      expenseRows: [...config.expenseRows, ...newExpenseRows],
+      openingBalance: total > 0 && config.openingBalance === 0 ? total : config.openingBalance,
+      openingYear: year,
+    };
+    setConfig(updated);
+    setOpeningVal(String(updated.openingBalance));
+    toast.success(
+      `Auto-filled ${newIncomeRows.length} income + ${newExpenseRows.length} expense rows` +
+      (total > 0 && config.openingBalance === 0 ? ` · Opening balance set to ₹${total.toLocaleString('en-IN')}` : ''),
+    );
+  };
 
   const addRow = (type: 'income' | 'expense', category: string) => {
     if (!category.trim()) return;
@@ -602,6 +678,21 @@ function ConfigPanel({
         <h2 className="text-sm font-bold text-foreground">Configure Ledger</h2>
         <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
       </div>
+
+      {/* Auto-fill from Settings */}
+      {(incomeSources.length > 0 || expenseSources.length > 0) && (
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/8 border border-primary/20">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-foreground">Auto-fill from Settings</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {incomeSources.length} income · {expenseSources.length} expense categories from your settings
+            </p>
+          </div>
+          <Button size="sm" className="h-7 px-3 text-xs shrink-0" onClick={handleAutoFill}>
+            Auto-fill
+          </Button>
+        </div>
+      )}
 
       {/* Opening balance */}
       <div className="space-y-1.5">
