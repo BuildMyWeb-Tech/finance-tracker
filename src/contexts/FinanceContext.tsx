@@ -41,6 +41,7 @@ interface FinanceContextType {
   setCustomAccounts: (accounts: Account[]) => Promise<void>;
   setCustomPersons: (persons: string[]) => Promise<void>;
   setTransactionGroups: (groups: TransactionGroup[]) => Promise<void>;
+  setOverallBudget: (amount: number) => Promise<void>;
   missingMoneyLog: MissingMoneyEntry[];
   logMissingMoney: (date: string, amount: number) => void;
   migrateData: () => Promise<{ success: boolean; message: string }>;
@@ -241,6 +242,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     await saveConfig('transactionGroups', groups, userId);
   }, [userId]);
 
+  const setOverallBudget = useCallback(async (amount: number) => {
+    setState(s => ({ ...s, overallBudget: amount }));
+    await saveConfig('overallBudget', amount, userId);
+  }, [userId]);
+
   // ─── MISSING MONEY LOG ────────────────────────────────────────────────────
 
   const logMissingMoney = useCallback((date: string, amount: number) => {
@@ -280,6 +286,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       setInitialBalance, setAccountBalance, setAccountBalances,
       setRealBalance,
       setIncomeSources, setExpenseSources, setAccountNames, setCustomAccounts, setCustomPersons, setTransactionGroups,
+      setOverallBudget,
       missingMoneyLog, logMissingMoney,
       migrateData, refreshFromCloud,
       selectedYear, selectedMonth, setSelectedYear, setSelectedMonth,

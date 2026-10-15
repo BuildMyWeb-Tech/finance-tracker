@@ -25,6 +25,8 @@ import NotFound from "./pages/NotFound";
 import LoginPage from "./pages/LoginPage";
 import BulkUploadPage from "./pages/BulkUploadPage";
 import LedgerPage from "./pages/LedgerPage";
+import AnalysisPage from "./pages/AnalysisPage";
+import GlobalSearch from "./components/GlobalSearch";
 
 const queryClient = new QueryClient();
 
@@ -153,12 +155,26 @@ function PullToRefresh() {
 
 function AppContent() {
   const { isLoading } = useFinance();
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen(s => !s);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   if (isLoading) return <LoadingScreen />;
 
   return (
     <BrowserRouter>
       <SyncIndicator />
       <PullToRefresh />
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/transactions" element={<Transactions />} />
@@ -169,9 +185,10 @@ function AppContent() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/bulk-upload" element={<BulkUploadPage />} />
         <Route path="/ledger" element={<LedgerPage />} />
+        <Route path="/analysis" element={<AnalysisPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
-      <BottomNav />
+      <BottomNav onSearchOpen={() => setSearchOpen(true)} />
     </BrowserRouter>
   );
 }

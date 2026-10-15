@@ -6,7 +6,7 @@
  * ✅ All existing expand/collapse row behaviour preserved
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
 import { useAppData } from '@/hooks/useAppData';
 import { getOverspendCategories, getMonthTransactions } from '@/lib/financial-store';
@@ -16,10 +16,11 @@ import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { Pencil, Check, X, AlertTriangle, CheckCircle, AlertCircle, ChevronDown, ChevronUp, BarChart2 } from 'lucide-react';
+import { Pencil, Check, X, AlertTriangle, CheckCircle, AlertCircle, ChevronDown, ChevronUp, BarChart2, Target } from 'lucide-react';
 import type { Transaction } from '@/lib/types';
 import TimeRangeFilter, { TimeRange, getTransactionsForRange } from '@/components/TimeRangeFilter';
 import AnalyticsCharts from '@/components/AnalyticsCharts';
+import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
 
 // ── Mini transaction row ─────────────────────────────────────────────────────
 function CategoryTxnRow({ t, accounts }: { t: Transaction; accounts: { id: string; name: string }[] }) {
@@ -49,10 +50,13 @@ function CategoryTxnRow({ t, accounts }: { t: Transaction; accounts: { id: strin
 }
 
 export default function BudgetPage() {
-  const { state, selectedYear, selectedMonth, setBudget } = useFinance();
+  const { state, selectedYear, selectedMonth, setBudget, setOverallBudget } = useFinance();
   const [timeRange, setTimeRange] = useState<TimeRange>('monthly');
   const [usageExpanded, setUsageExpanded] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [editingOverall, setEditingOverall] = useState(false);
+  const [overallEditVal, setOverallEditVal] = useState('');
+  const alertedRef = useRef<Set<string>>(new Set());
 
   const { transactionGroups, expenseCategoriesByGroup } = useAppData();
   const customExpense = state.expenseSources || [];
@@ -163,6 +167,44 @@ export default function BudgetPage() {
       }));
   }, [allRowsFlat, overallActual]);
 
+  // ── Overspend alert toasts (fire once per category per month) ──────────────
+  useEffect(() => {
+    const key = `${selectedYear}-${selectedMonth}`;
+    allRowsFlat.forEach(c => {
+      if (c.budget > 0 && c.percent >= 80 && !alertedRef.current.has(`${key}-${c.category}`)) {
+        alertedRef.current.add(`${key}-${c.category}`);
+        const msg = c.overspent
+          ? `⚠ ${c.category} overspent by ₹${(c.actual - c.budget).toLocaleString('en-IN')}`
+          : `⚠ ${c.category} at ${Math.round(c.percent)}% of budget`;
+        toast.warning(msg, { duration: 4000 });
+      }
+    });
+  }, [allRowsFlat, selectedYear, selectedMonth]);
+
+  // ── 6-month sparkline data per category ──────────────────────────────────
+  const sparklineData = useMemo(() => {
+    const result: Record<string, { m: string; v: number }[]> = {};
+    const allCats = allRowsFlat.map(r => r.category);
+    for (const cat of allCats) {
+      const points: { m: string; v: number }[] = [];
+      for (let i = 5; i >= 0; i--) {
+        let m = selectedMonth - i;
+        let y = selectedYear;
+        while (m <= 0) { m += 12; y--; }
+        const v = state.transactions
+          .filter(t => t.type === 'expense' && t.category === cat && t.year === y && t.month === m)
+          .reduce((s, t) => s + t.amount, 0);
+        points.push({ m: String(m), v });
+      }
+      result[cat] = points;
+    }
+    return result;
+  }, [allRowsFlat, state.transactions, selectedYear, selectedMonth]);
+
+  // ── Overall budget cap ────────────────────────────────────────────────────
+  const overallBudgetCap = state.overallBudget ?? 0;
+  const overallCapPct = overallBudgetCap > 0 ? Math.round((overallActual / overallBudgetCap) * 100) : 0;
+
   return (
     <div className="pb-20 px-2 sm:px-4 pt-4 max-w-2xl mx-auto space-y-4 animate-slide-up">
       {/* Header */}
@@ -171,6 +213,66 @@ export default function BudgetPage() {
         <div className="flex items-center gap-2">
           <TimeRangeFilter value={timeRange} onChange={setTimeRange} />
           <MonthSelector />
+        </div>
+      </div>
+
+      {/* ── Overall Budget Cap ── */}
+      <div className="glass-card rounded-xl p-3 mx-2 flex items-center gap-3">
+        <Target className="h-4 w-4 text-primary shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-muted-foreground">Overall Budget Cap</span>
+            {overallBudgetCap > 0 && (
+              <span className={cn('text-xs font-semibold', overallCapPct > 100 ? 'text-destructive' : overallCapPct >= 80 ? 'text-warning' : 'text-success')}>
+                {overallCapPct}% of ₹{overallBudgetCap.toLocaleString('en-IN')}
+              </span>
+            )}
+          </div>
+          {overallBudgetCap > 0 && (
+            <Progress
+              value={Math.min(overallCapPct, 100)}
+              className={cn('h-1.5 mb-1', overallCapPct > 100 ? '[&>div]:bg-destructive' : overallCapPct >= 80 ? '[&>div]:bg-warning' : '[&>div]:bg-success')}
+            />
+          )}
+          {editingOverall ? (
+            <div className="flex items-center gap-2 mt-1">
+              <Input
+                type="number"
+                className="h-6 text-xs w-28 px-2"
+                value={overallEditVal}
+                onChange={e => setOverallEditVal(e.target.value)}
+                onKeyDown={async e => {
+                  if (e.key === 'Enter') {
+                    const v = Number(overallEditVal);
+                    if (v >= 0) { await setOverallBudget(v); toast.success('Overall budget saved'); }
+                    setEditingOverall(false);
+                  }
+                  if (e.key === 'Escape') setEditingOverall(false);
+                }}
+                autoFocus
+                placeholder="e.g. 50000"
+              />
+              <button
+                className="text-success"
+                onClick={async () => {
+                  const v = Number(overallEditVal);
+                  if (v >= 0) { await setOverallBudget(v); toast.success('Overall budget saved'); }
+                  setEditingOverall(false);
+                }}
+              ><Check className="h-3.5 w-3.5" /></button>
+              <button className="text-muted-foreground" onClick={() => setEditingOverall(false)}>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              className="text-xs text-primary hover:underline flex items-center gap-1"
+              onClick={() => { setOverallEditVal(String(overallBudgetCap || '')); setEditingOverall(true); }}
+            >
+              <Pencil className="h-3 w-3" />
+              {overallBudgetCap > 0 ? 'Edit cap' : 'Set a monthly cap'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -297,6 +399,7 @@ export default function BudgetPage() {
               <span className="w-24 text-right shrink-0">Actual</span>
               <span className="w-24 text-right shrink-0">Balance</span>
               <span className="w-20 text-right shrink-0">Overspend</span>
+              <span className="w-16 text-right shrink-0 hidden sm:block">6M Trend</span>
               <span className="w-4 shrink-0" />
             </div>
 
@@ -356,6 +459,19 @@ export default function BudgetPage() {
                           <span className={cn('w-20 text-right text-xs font-bold shrink-0', overspendRow > 0 ? 'text-destructive' : 'text-muted-foreground')}>
                             {overspendRow > 0 ? fmt(overspendRow) : '—'}
                           </span>
+                          {/* 6-month sparkline */}
+                          <div className="w-16 h-8 shrink-0 hidden sm:block">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={sparklineData[c.category] || []}>
+                                <Line type="monotone" dataKey="v" stroke={c.overspent ? '#ef4444' : c.percent >= 80 ? '#f59e0b' : '#4CAF73'} strokeWidth={1.5} dot={false} />
+                                <Tooltip
+                                  contentStyle={{ background: '#1e2318', border: '1px solid #333', borderRadius: 8, fontSize: 10, padding: '2px 6px' }}
+                                  formatter={(v: number) => [`₹${v.toLocaleString('en-IN')}`, '']}
+                                  labelFormatter={() => ''}
+                                />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
                           <div className="w-4 shrink-0 flex justify-center">
                             {txns.length > 0 && (isExpanded
                               ? <ChevronUp className="h-3 w-3 text-muted-foreground" />
@@ -403,6 +519,7 @@ export default function BudgetPage() {
                 <span className={cn('w-20 text-right shrink-0', overspendAmt > 0 ? 'text-destructive' : 'text-muted-foreground')}>
                   {overspendAmt > 0 ? fmt(overspendAmt) : '—'}
                 </span>
+                <span className="w-16 shrink-0 hidden sm:block" />
                 <span className="w-4 shrink-0" />
               </div>
             )}

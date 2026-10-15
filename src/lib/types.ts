@@ -159,6 +159,8 @@ export interface FinancialState {
   transactionGroups?: TransactionGroup[];
   // ✅ Per-user ledger page config
   ledgerConfig?: Record<string, any>;
+  // ✅ Overall total budget cap
+  overallBudget?: number;
 }
 
 export const MONTH_NAMES = [
