@@ -5,7 +5,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ArrowLeftRight, TrendingUp,
-  PieChart, BarChart3, Settings, Users, ScanLine,
+  PieChart, BarChart3, Settings, Users, ScanLine, TableProperties,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -16,7 +16,7 @@ const navItems = [
   { to: '/budget',       icon: PieChart,        label: 'Expenses'},
   // { to: '/bulk-upload',  icon: ScanLine,        label: 'Upload'  },
   { to: '/reports',      icon: BarChart3,       label: 'Reports' },
-  // { to: '/persons',      icon: Users,           label: 'Persons' },
+  { to: '/ledger',       icon: TableProperties, label: 'Ledger'  },
   { to: '/settings',     icon: Settings,        label: 'Settings'},
 ];
 

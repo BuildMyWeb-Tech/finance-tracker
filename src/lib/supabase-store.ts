@@ -117,6 +117,7 @@ export async function loadFromSupabase(userId: string): Promise<FinancialState> 
       customAccounts: configMap['customAccounts'],
       customPersons: configMap['customPersons'],
       transactionGroups: configMap['transactionGroups'],
+      ledgerConfig: configMap['ledgerConfig'],
     };
 
     saveLocalState(state, userId);

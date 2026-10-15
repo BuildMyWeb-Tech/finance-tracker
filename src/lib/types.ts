@@ -157,6 +157,8 @@ export interface FinancialState {
   customPersons?: string[];
   // ✅ Dynamic transaction groups (CRUD) — replaces hardcoded home/debt
   transactionGroups?: TransactionGroup[];
+  // ✅ Per-user ledger page config
+  ledgerConfig?: Record<string, any>;
 }
 
 export const MONTH_NAMES = [
