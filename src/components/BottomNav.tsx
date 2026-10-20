@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ArrowLeftRight, TrendingUp,
   PieChart, BarChart3, Settings, TableProperties,
-  BarChart2, Search,
+  BarChart2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -71,19 +71,6 @@ export default function BottomNav({ onSearchOpen }: BottomNavProps) {
           )}
         </NavLink>
 
-        {/* Search button */}
-        {onSearchOpen && (
-          <button
-            onClick={onSearchOpen}
-            className="flex flex-col items-center gap-0.5 px-1 py-1 rounded-xl transition-all min-w-0 shrink-0 text-muted-foreground hover:text-foreground"
-            title="Search (Ctrl+K)"
-          >
-            <div className="h-6 w-6 rounded-lg flex items-center justify-center">
-              <Search className="h-3.5 w-3.5" />
-            </div>
-            <span className="text-[9px] font-medium leading-none">Search</span>
-          </button>
-        )}
       </div>
     </nav>
   );
