@@ -6,6 +6,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { FinanceProvider, useFinance } from "@/contexts/FinanceContext";
@@ -26,6 +27,7 @@ import LoginPage from "./pages/LoginPage";
 import BulkUploadPage from "./pages/BulkUploadPage";
 import LedgerPage from "./pages/LedgerPage";
 import AnalysisPage from "./pages/AnalysisPage";
+import SummaryPage from "./pages/SummaryPage";
 import GlobalSearch from "./components/GlobalSearch";
 
 const queryClient = new QueryClient();
@@ -153,6 +155,53 @@ function PullToRefresh() {
   );
 }
 
+function LandscapeToggle() {
+  const [isLandscape, setIsLandscape] = useState(false);
+
+  const toggle = async () => {
+    try {
+      if (!isLandscape) {
+        await (screen.orientation as any).lock('landscape');
+        setIsLandscape(true);
+      } else {
+        (screen.orientation as any).unlock();
+        setIsLandscape(false);
+      }
+    } catch {
+      // Browser doesn't support orientation lock — just show a tip
+      toast.info('Rotate your device to landscape for a wider view');
+    }
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      title={isLandscape ? 'Exit landscape' : 'Rotate to landscape'}
+      style={{
+        position: 'fixed', bottom: '72px', right: '10px', zIndex: 9000,
+        width: '32px', height: '32px',
+        background: 'rgba(26,31,22,0.85)',
+        border: '1px solid rgba(201,168,76,0.3)',
+        borderRadius: '10px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer',
+        backdropFilter: 'blur(6px)',
+        transition: 'all 0.2s',
+      }}
+    >
+      <svg
+        width="16" height="16" viewBox="0 0 24 24" fill="none"
+        stroke={isLandscape ? '#C9A84C' : '#888'}
+        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        style={{ transform: isLandscape ? 'rotate(90deg)' : 'none', transition: 'transform 0.3s' }}
+      >
+        <rect x="2" y="5" width="20" height="14" rx="2" />
+        <path d="M17 12l-5-4v8l5-4z" fill={isLandscape ? '#C9A84C' : '#888'} stroke="none" />
+      </svg>
+    </button>
+  );
+}
+
 function AppContent() {
   const { isLoading } = useFinance();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -185,10 +234,12 @@ function AppContent() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/bulk-upload" element={<BulkUploadPage />} />
         <Route path="/ledger" element={<LedgerPage />} />
+        <Route path="/summary" element={<SummaryPage />} />
         <Route path="/analysis" element={<AnalysisPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       <BottomNav onSearchOpen={() => setSearchOpen(true)} />
+      <LandscapeToggle />
     </BrowserRouter>
   );
 }

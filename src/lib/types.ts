@@ -161,6 +161,22 @@ export interface FinancialState {
   ledgerConfig?: Record<string, any>;
   // ✅ Overall total budget cap
   overallBudget?: number;
+  // ✅ Summary page group config
+  summaryConfig?: SummaryConfig;
+}
+
+export interface SummaryGroup {
+  id: string;
+  name: string;
+  categories: string[];  // expense categories included in this group
+  includeInTotal: boolean; // whether to add to the bottom "Total" row
+}
+
+export interface SummaryConfig {
+  groups: SummaryGroup[];
+  openingBalance: number;
+  openingMonth: number;  // 1-indexed
+  openingYear: number;
 }
 
 export const MONTH_NAMES = [

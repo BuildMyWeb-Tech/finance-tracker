@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { Transaction, Budget, RecurringEntry, FinancialState, Person, IncomeSource, ExpenseSource, Account, TransactionGroup } from '@/lib/types';
+import { Transaction, Budget, RecurringEntry, FinancialState, Person, IncomeSource, ExpenseSource, Account, TransactionGroup, SummaryConfig } from '@/lib/types';
 import { generateId, normalizeTransaction } from '@/lib/financial-store';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -42,6 +42,7 @@ interface FinanceContextType {
   setCustomPersons: (persons: string[]) => Promise<void>;
   setTransactionGroups: (groups: TransactionGroup[]) => Promise<void>;
   setOverallBudget: (amount: number) => Promise<void>;
+  setSummaryConfig: (cfg: SummaryConfig) => Promise<void>;
   missingMoneyLog: MissingMoneyEntry[];
   logMissingMoney: (date: string, amount: number) => void;
   migrateData: () => Promise<{ success: boolean; message: string }>;
@@ -247,6 +248,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     await saveConfig('overallBudget', amount, userId);
   }, [userId]);
 
+  const setSummaryConfig = useCallback(async (cfg: SummaryConfig) => {
+    setState(s => ({ ...s, summaryConfig: cfg }));
+    await saveConfig('summaryConfig', cfg, userId);
+  }, [userId]);
+
   // ─── MISSING MONEY LOG ────────────────────────────────────────────────────
 
   const logMissingMoney = useCallback((date: string, amount: number) => {
@@ -287,6 +293,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       setRealBalance,
       setIncomeSources, setExpenseSources, setAccountNames, setCustomAccounts, setCustomPersons, setTransactionGroups,
       setOverallBudget,
+      setSummaryConfig,
       missingMoneyLog, logMissingMoney,
       migrateData, refreshFromCloud,
       selectedYear, selectedMonth, setSelectedYear, setSelectedMonth,
